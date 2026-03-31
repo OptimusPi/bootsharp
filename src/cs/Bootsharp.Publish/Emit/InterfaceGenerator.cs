@@ -97,8 +97,8 @@ internal sealed class InterfaceGenerator
 
     private string EmitExportMethod (MethodMeta method)
     {
-        var sigArgs = string.Join(", ", method.Arguments.Select(a => $"{a.Value.TypeSyntax} {a.Name}"));
-        var sig = $"public static {method.ReturnValue.TypeSyntax} {method.Name} ({sigArgs})";
+        var sigArgs = string.Join(", ", method.Arguments.Select(a => $"{a.Value.Type.Syntax} {a.Name}"));
+        var sig = $"public static {method.ReturnValue.Type.Syntax} {method.Name} ({sigArgs})";
         var args = string.Join(", ", method.Arguments.Select(a => a.Name));
         return $"[JSInvokable] {sig} => handler.{method.Name}({args});";
     }
@@ -106,9 +106,9 @@ internal sealed class InterfaceGenerator
     private string EmitImportMethod (InterfaceMeta i, MethodMeta method)
     {
         var attr = method.Kind == MethodKind.Function ? "JSFunction" : "JSEvent";
-        var sigArgs = string.Join(", ", method.Arguments.Select(a => $"{a.Value.TypeSyntax} {a.Name}"));
+        var sigArgs = string.Join(", ", method.Arguments.Select(a => $"{a.Value.Type.Syntax} {a.Name}"));
         if (instanced.Contains(i)) sigArgs = PrependInstanceIdArgTypeAndName(sigArgs);
-        var sig = $"public static {method.ReturnValue.TypeSyntax} {method.Name} ({sigArgs})";
+        var sig = $"public static {method.ReturnValue.Type.Syntax} {method.Name} ({sigArgs})";
         var args = string.Join(", ", method.Arguments.Select(a => a.Name));
         if (instanced.Contains(i)) args = PrependInstanceIdArgName(args);
         var name = $"Proxy_{method.Space.Replace('.', '_')}_{method.Name}";
@@ -117,9 +117,9 @@ internal sealed class InterfaceGenerator
 
     private string EmitImportMethodImplementation (InterfaceMeta i, MethodMeta method)
     {
-        var sigArgs = string.Join(", ", method.Arguments.Select(a => $"{a.Value.TypeSyntax} {a.Name}"));
+        var sigArgs = string.Join(", ", method.Arguments.Select(a => $"{a.Value.Type.Syntax} {a.Name}"));
         var args = string.Join(", ", method.Arguments.Select(a => a.Name));
         if (instanced.Contains(i)) args = PrependInstanceIdArgName(args);
-        return $"{method.ReturnValue.TypeSyntax} {i.TypeSyntax}.{method.InterfaceName} ({sigArgs}) => {method.Name}({args});";
+        return $"{method.ReturnValue.Type.Syntax} {i.TypeSyntax}.{method.InterfaceName} ({sigArgs}) => {method.Name}({args});";
     }
 }

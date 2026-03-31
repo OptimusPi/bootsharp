@@ -25,13 +25,12 @@ internal sealed class InteropGenerator
               #pragma warning disable
 
               using System.Runtime.InteropServices.JavaScript;
-              using static Bootsharp.Serializer;
 
               namespace Bootsharp.Generated;
 
               public static partial class Interop
               {
-                  [System.Runtime.InteropServices.JavaScript.JSExport] internal static void DisposeExportedInstance (int id) => global::Bootsharp.Instances.Dispose(id);
+                  [System.Runtime.InteropServices.JavaScript.JSExport] internal static void DisposeExportedInstance (int id) => Instances.Dispose(id);
                   [System.Runtime.InteropServices.JavaScript.JSImport("disposeInstance", "Bootsharp")] internal static partial void DisposeImportedInstance (int id);
 
                   {{JoinLines(methods)}}
@@ -43,7 +42,7 @@ internal sealed class InteropGenerator
     {
         var instanced = TryInstanced(inv, out var instance);
         var marshalAs = MarshalAmbiguous(inv.ReturnValue, true);
-        var wait = ShouldWait(inv.ReturnValue);
+        var wait = ShouldWait(inv);
         var attr = $"[System.Runtime.InteropServices.JavaScript.JSExport] {marshalAs}";
         methods.Add($"{attr}internal static {BuildSignature()} => {BuildBody()};");
 
@@ -51,7 +50,7 @@ internal sealed class InteropGenerator
         {
             var args = string.Join(", ", inv.Arguments.Select(BuildSignatureArg));
             if (instanced) args = args = PrependInstanceIdArgTypeAndName(args);
-            var @return = BuildReturnValue(inv.ReturnValue);
+            var @return = BuildReturnValue(inv);
             var signature = $"{@return} {BuildMethodName(inv)} ({args})";
             if (wait) signature = $"async {signature}";
             return signature;
@@ -61,11 +60,11 @@ internal sealed class InteropGenerator
         {
             var args = string.Join(", ", inv.Arguments.Select(BuildBodyArg));
             var body = instanced
-                ? $"(({instance!.TypeSyntax})global::Bootsharp.Instances.Get(_id)).{inv.Name}({args})"
+                ? $"(({instance!.TypeSyntax})Instances.Get(_id)).{inv.Name}({args})"
                 : $"global::{inv.Space}.{inv.Name}({args})";
             if (wait) body = $"await {body}";
-            if (inv.ReturnValue.Instance) body = $"global::Bootsharp.Instances.Register({body})";
-            else if (inv.ReturnValue.Serialized) body = $"Serialize({body}, {BuildTypeInfo(inv.ReturnValue)})";
+            if (inv.ReturnValue.Instance) body = $"Instances.Register({body})";
+            else if (inv.ReturnValue.Serialized) body = $"Serializer.Serialize({body}, {BuildHandle(inv.ReturnValue)})";
             return body;
         }
 
@@ -76,7 +75,7 @@ internal sealed class InteropGenerator
                 var (_, _, full) = BuildInteropInterfaceImplementationName(arg.Value.InstanceType, InterfaceKind.Import);
                 return $"new global::{full}({arg.Name})";
             }
-            if (arg.Value.Serialized) return $"Deserialize({arg.Name}, {BuildTypeInfo(arg.Value)})";
+            if (arg.Value.Serialized) return $"Serializer.Deserialize({arg.Name}, {BuildHandle(arg.Value)})";
             return arg.Name;
         }
     }
@@ -85,7 +84,7 @@ internal sealed class InteropGenerator
     {
         var args = string.Join(", ", method.Arguments.Select(BuildSignatureArg));
         if (TryInstanced(method, out _)) args = PrependInstanceIdArgTypeAndName(args);
-        var @return = BuildReturnValue(method.ReturnValue);
+        var @return = BuildReturnValue(method);
         var endpoint = $"{method.JSSpace}.{method.JSName}Serialized";
         var attr = $"""[System.Runtime.InteropServices.JavaScript.JSImport("{endpoint}", "Bootsharp")]""";
         var marsh = MarshalAmbiguous(method.ReturnValue, true);
@@ -96,10 +95,10 @@ internal sealed class InteropGenerator
     {
         var instanced = TryInstanced(method, out _);
         var name = $"Proxy_{BuildMethodName(method)}";
-        var @return = method.ReturnValue.TypeSyntax;
-        var args = string.Join(", ", method.Arguments.Select(arg => $"{arg.Value.TypeSyntax} {arg.Name}"));
+        var @return = method.ReturnValue.Type.Syntax;
+        var args = string.Join(", ", method.Arguments.Select(arg => $"{arg.Value.Type.Syntax} {arg.Name}"));
         if (instanced) args = args = PrependInstanceIdArgTypeAndName(args);
-        var wait = ShouldWait(method.ReturnValue);
+        var wait = ShouldWait(method);
         var async = wait ? "async " : "";
         methods.Add($"public static {async}{@return} {name}({args}) => {BuildBody()};");
 
@@ -109,30 +108,35 @@ internal sealed class InteropGenerator
             if (instanced) args = PrependInstanceIdArgName(args);
             var body = $"{BuildMethodName(method)}({args})";
             if (wait) body = $"await {body}";
-            if (method.ReturnValue.Instance)
+            if (method.ReturnValue.InstanceType is { } itp)
             {
-                var (_, _, full) = BuildInteropInterfaceImplementationName(method.ReturnValue.InstanceType, InterfaceKind.Import);
-                return $"({BuildSyntax(method.ReturnValue.InstanceType)})new global::{full}({body})";
+                var (_, _, full) = BuildInteropInterfaceImplementationName(itp, InterfaceKind.Import);
+                return $"({BuildSyntax(itp)})new global::{full}({body})";
             }
-            if (!method.ReturnValue.Serialized) return body;
-            return $"Deserialize({body}, {BuildTypeInfo(method.ReturnValue)})";
+            if (method.ReturnValue.Serialized)
+                return $"Serializer.Deserialize({body}, {BuildHandle(method.ReturnValue)})";
+            return body;
         }
 
         string BuildBodyArg (ArgumentMeta arg)
         {
-            if (arg.Value.Instance) return $"global::Bootsharp.Instances.Register({arg.Name})";
-            if (arg.Value.Serialized) return $"Serialize({arg.Name}, {BuildTypeInfo(arg.Value)})";
+            if (arg.Value.Instance) return $"Instances.Register({arg.Name})";
+            if (arg.Value.Serialized) return $"Serializer.Serialize({arg.Name}, {BuildHandle(arg.Value)})";
             return arg.Name;
         }
     }
 
+    private static string BuildHandle (ValueMeta meta)
+    {
+        return $"SerializerContext.{meta.Type.Id}";
+    }
+
     private string BuildValueType (ValueMeta value)
     {
-        if (value.Void) return "void";
-        var nil = value.Nullable ? "?" : "";
+        var nil = value.Optional && !value.Serialized ? "?" : "";
         if (value.Instance) return $"global::System.Int32{nil}";
-        if (value.Serialized) return $"global::System.String{nil}";
-        return value.TypeSyntax;
+        if (value.Serialized) return $"global::System.Int64{nil}";
+        return value.Type.Syntax;
     }
 
     private string BuildSignatureArg (ArgumentMeta arg)
@@ -141,10 +145,10 @@ internal sealed class InteropGenerator
         return $"{MarshalAmbiguous(arg.Value, false)}{type} {arg.Name}";
     }
 
-    private string BuildReturnValue (ValueMeta value)
+    private string BuildReturnValue (MethodMeta method)
     {
-        var syntax = ShouldMarshalAsAny(value.Type) ? "object" : BuildValueType(value);
-        if (ShouldWait(value)) syntax = $"global::System.Threading.Tasks.Task<{syntax}>";
+        var syntax = BuildValueType(method.ReturnValue);
+        if (ShouldWait(method)) syntax = $"global::System.Threading.Tasks.Task<{syntax}>";
         return syntax;
     }
 
@@ -159,13 +163,25 @@ internal sealed class InteropGenerator
         return instance is not null;
     }
 
-    private bool ShouldWait (ValueMeta value)
+    private bool ShouldWait (MethodMeta method)
     {
-        return value.Async && (value.Serialized || ShouldMarshalAsAny(value.Type) || value.Instance);
+        if (!method.Async) return false;
+        return method.ReturnValue.Serialized || method.ReturnValue.Instance;
     }
 
-    private static string BuildTypeInfo (ValueMeta meta)
+    private static string MarshalAmbiguous (ValueMeta value, bool @return)
     {
-        return $"global::Bootsharp.Generated.SerializerContext.Default.{meta.TypeInfo}";
+        var stx = value.Type.Syntax;
+        var promise = value.Type.Syntax.StartsWith("global::System.Threading.Tasks.Task<");
+        if (promise) stx = value.Type.Syntax[36..];
+
+        var result = "";
+        if (value.Serialized || stx.StartsWith("global::System.Int64")) result = "JSType.BigInt";
+        else if (stx.StartsWith("global::System.DateTime")) result = "JSType.Date";
+        if (result == "") return "";
+
+        if (promise) result = $"JSType.Promise<{result}>";
+        if (@return) return $"[return: JSMarshalAs<{result}>] ";
+        return $"[JSMarshalAs<{result}>] ";
     }
 }

@@ -7,6 +7,8 @@ internal sealed class SolutionInspector
     private readonly List<InterfaceMeta> staticInterfaces = [];
     private readonly List<InterfaceMeta> instancedInterfaces = [];
     private readonly List<MethodMeta> staticMethods = [];
+    private readonly HashSet<(Type Type, InterfaceKind Kind)> inspectedInstancedInterfaces = [];
+    private readonly HashSet<Type> serializedValues = [];
     private readonly List<string> warnings = [];
     private readonly TypeConverter converter;
     private readonly MethodInspector methodInspector;
@@ -52,6 +54,7 @@ internal sealed class SolutionInspector
         InstancedInterfaces = [..instancedInterfaces.DistinctBy(i => i.FullName)],
         StaticMethods = [..staticMethods],
         Crawled = [..converter.CrawledTypes],
+        SerializedTypes = new SerializedInspector(converter).Inspect(serializedValues),
         Warnings = [..warnings]
     };
 
@@ -117,14 +120,23 @@ internal sealed class SolutionInspector
         // When interop instance is an argument of exported method, it's imported (JS) API and vice-versa.
         var argKind = kind == InterfaceKind.Export ? InterfaceKind.Import : InterfaceKind.Export;
         foreach (var arg in meta.Arguments)
-            InspectMethodParameter(arg.Value.Type, argKind);
-        if (!meta.ReturnValue.Void)
-            InspectMethodParameter(meta.ReturnValue.Type, kind);
+            InspectMethodParameter(arg.Value.Type.Clr, argKind);
+        if (!meta.Void) InspectMethodParameter(meta.ReturnValue.Type.Clr, kind);
     }
 
     private void InspectMethodParameter (Type paramType, InterfaceKind kind)
     {
+        if (ShouldSerialize(paramType)) serializedValues.Add(paramType);
         if (IsInstancedInteropInterface(paramType, out var instanceType))
-            instancedInterfaces.Add(interfaceInspector.Inspect(instanceType, kind));
+            InspectInstancedInteropInterface(instanceType, kind);
+    }
+
+    private void InspectInstancedInteropInterface (Type type, InterfaceKind kind)
+    {
+        if (!inspectedInstancedInterfaces.Add((type, kind))) return;
+        var interfaceMeta = interfaceInspector.Inspect(type, kind);
+        instancedInterfaces.Add(interfaceMeta);
+        foreach (var method in interfaceMeta.Methods)
+            InspectMethodParameters(method, kind);
     }
 }

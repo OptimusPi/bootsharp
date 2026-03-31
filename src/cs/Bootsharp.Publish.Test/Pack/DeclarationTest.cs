@@ -447,12 +447,12 @@ public class DeclarationTest : PackTest
                 export interface Item {
                 }
                 export interface Container {
-                    items: Record<string, n.Item>;
+                    items: Map<string, n.Item>;
                 }
             }
 
             export namespace n.Class {
-                export function combine(items: Record<string, n.Item>): n.Container;
+                export function combine(items: Map<string, n.Item>): n.Container;
             }
             """);
     }
@@ -471,12 +471,12 @@ public class DeclarationTest : PackTest
                 export interface Item {
                 }
                 export interface Container {
-                    items: Record<string, n.Item>;
+                    items: Map<string, n.Item>;
                 }
             }
 
             export namespace n.Class {
-                export function combine(items: Record<string, n.Item>): n.Container;
+                export function combine(items: Map<string, n.Item>): n.Container;
             }
             """);
     }
@@ -772,6 +772,15 @@ public class DeclarationTest : PackTest
         Execute();
         Contains("bar?: Array<Array<IFoo<string> | null> | null>;");
         Contains("nya?: Array<Array<IFoo<number> | null> | null>;");
+    }
+
+    [Fact]
+    public void NullableDictionaryValueTypesUnionWithNull ()
+    {
+        AddAssembly(
+            WithClass("[JSFunction] public static Dictionary<string, int?>? Fun (Dictionary<string, string?>? bar) => default;"));
+        Execute();
+        Contains("export let fun: (bar: Map<string, string | null> | undefined) => Map<string, number | null> | null;");
     }
 
     [Fact]

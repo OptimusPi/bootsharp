@@ -135,7 +135,7 @@ internal sealed class TypeDeclarationGenerator (Preferences prefs)
     {
         AppendLine(meta.JSName, indent + 1);
         builder.Append(": Event<[");
-        builder.AppendJoin(", ", meta.Arguments.Select(a => $"{a.JSName}: {a.Value.JSTypeSyntax}"));
+        builder.AppendJoin(", ", meta.Arguments.Select(a => $"{a.JSName}: {a.Value.Type.TSSyntax}"));
         builder.Append("]>;");
     }
 
@@ -143,9 +143,9 @@ internal sealed class TypeDeclarationGenerator (Preferences prefs)
     {
         AppendLine(meta.JSName, indent + 1);
         builder.Append('(');
-        builder.AppendJoin(", ", meta.Arguments.Select(a => $"{a.JSName}: {a.Value.JSTypeSyntax}"));
+        builder.AppendJoin(", ", meta.Arguments.Select(a => $"{a.JSName}: {a.Value.Type.TSSyntax}"));
         builder.Append("): ");
-        builder.Append(meta.ReturnValue.JSTypeSyntax);
+        builder.Append(meta.ReturnValue.Type.TSSyntax);
         builder.Append(';');
     }
 

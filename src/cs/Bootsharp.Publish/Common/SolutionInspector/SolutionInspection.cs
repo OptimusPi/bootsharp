@@ -37,6 +37,10 @@ internal sealed class SolutionInspection (MetadataLoadContext ctx) : IDisposable
     /// </summary>
     public required IReadOnlyCollection<Type> Crawled { get; init; }
     /// <summary>
+    /// Metadata for all the types that require binary serialization, in topological initialization order.
+    /// </summary>
+    public required IReadOnlyCollection<SerializedMeta> SerializedTypes { get; init; }
+    /// <summary>
     /// Warnings logged while inspecting solution.
     /// </summary>
     public required IReadOnlyCollection<string> Warnings { get; init; }

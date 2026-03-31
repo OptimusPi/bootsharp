@@ -56,7 +56,8 @@ internal sealed class TypeConverter (Preferences prefs)
     {
         var keyType = type.GenericTypeArguments[0];
         var valueType = type.GenericTypeArguments[1];
-        return $"Record<{Convert(keyType)}, {Convert(valueType)}>";
+        if (EnterNullability(1)) return $"Map<{Convert(keyType)}, {Convert(valueType)} | null>";
+        return $"Map<{Convert(keyType)}, {Convert(valueType)}>";
     }
 
     private string ConvertAwaitable (Type type)
@@ -91,10 +92,10 @@ internal sealed class TypeConverter (Preferences prefs)
         TypeCode.Byte or TypeCode.SByte or TypeCode.UInt16 or TypeCode.UInt32 or TypeCode.UInt64 or
         TypeCode.Int16 or TypeCode.Int32 or TypeCode.Decimal or TypeCode.Double or TypeCode.Single;
 
-    private bool EnterNullability ()
+    private bool EnterNullability (int idx = 0)
     {
         if (nullability == null) return false;
-        if (nullability.GenericTypeArguments.Length > 0) nullability = nullability.GenericTypeArguments[0];
+        if (nullability.GenericTypeArguments.Length > idx) nullability = nullability.GenericTypeArguments[idx];
         else if (nullability.ElementType != null) nullability = nullability.ElementType;
         else return false;
         return nullability.ReadState == NullabilityState.Nullable;

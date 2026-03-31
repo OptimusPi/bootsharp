@@ -55,7 +55,7 @@ public sealed class BootsharpEmit : Microsoft.Build.Utilities.Task
     private void GenerateSerializer (SolutionInspection inspection)
     {
         var generator = new SerializerGenerator();
-        var content = generator.Generate(inspection);
+        var content = generator.Generate(inspection.SerializedTypes);
         WriteGenerated(SerializerFilePath, content);
     }
 

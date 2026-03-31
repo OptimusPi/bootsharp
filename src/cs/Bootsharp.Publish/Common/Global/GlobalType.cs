@@ -1,6 +1,7 @@
 global using static Bootsharp.Publish.GlobalType;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Text;
 
 namespace Bootsharp.Publish;
 
@@ -114,11 +115,11 @@ internal static class GlobalType
     public static bool IsInstancedInteropInterface (Type type, [NotNullWhen(true)] out Type? instanceType)
     {
         if (IsTaskWithResult(type, out instanceType))
-            return IsInstancedInteropInterface(instanceType, out _);
-        instanceType = type;
-        if (!type.IsInterface) return false;
-        if (string.IsNullOrEmpty(type.Namespace)) return true;
-        return !type.Namespace.StartsWith("System.", StringComparison.Ordinal);
+            return IsInstancedInteropInterface(instanceType, out instanceType);
+        return (instanceType = type.IsInterface && IsSpaceSupported(type.Namespace) ? type : null) != null;
+
+        static bool IsSpaceSupported (string? space) =>
+            string.IsNullOrEmpty(space) || !space.StartsWith("System.", StringComparison.Ordinal);
     }
 
     public static string BuildJSSpace (Type type, Preferences prefs)
@@ -168,10 +169,19 @@ internal static class GlobalType
         return inter.FullName.Replace("Bootsharp.Generated.Exports.", "").Replace(".", "_");
     }
 
-    public static string BuildTypeInfo (Type type)
+    public static string BuildId (Type type)
     {
-        var syntax = IsTaskWithResult(type, out var result) ? BuildSyntax(result) : BuildSyntax(type);
-        return $"X{HashStable(syntax):X}";
+        var stx = IsTaskWithResult(type, out var result) ? BuildSyntax(result) : BuildSyntax(type);
+        stx = stx.Replace("global::", "");
+        var builder = new StringBuilder();
+        foreach (var c in stx)
+            if (char.IsLetterOrDigit(c) || c == '_') builder.Append(c);
+            else if (c == '.') builder.Append('_');
+            else if (c == '?') builder.Append("OrNull");
+            else if (c == '[') builder.Append("Array");
+            else if (c == '<') builder.Append("_Of_");
+            else if (c == ',') builder.Append("_And_");
+        return builder.ToString();
     }
 
     public static string BuildSyntax (Type type) => BuildSyntax(type, null, false);
@@ -198,17 +208,6 @@ internal static class GlobalType
         {
             if (type.Namespace is null) return type.Name;
             return $"{type.Namespace}.{type.Name}";
-        }
-    }
-
-    private static int HashStable (this string str)
-    {
-        unchecked
-        {
-            var hash = 17;
-            foreach (char c in str)
-                hash = (hash * 31) + c;
-            return hash;
         }
     }
 }

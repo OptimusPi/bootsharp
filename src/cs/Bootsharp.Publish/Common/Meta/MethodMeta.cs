@@ -45,10 +45,12 @@ internal sealed record MethodMeta
     /// Metadata of the value returned by the method.
     /// </summary>
     public required ValueMeta ReturnValue { get; init; }
-
-    public override string ToString ()
-    {
-        var args = string.Join(", ", Arguments.Select(a => a.ToString()));
-        return $"[{Kind}] {Assembly}.{Space}.{Name} ({args}) => {ReturnValue}";
-    }
+    /// <summary>
+    /// Whether the <see cref="ReturnValue"/> is void.
+    /// </summary>
+    public required bool Void { get; init; }
+    /// <summary>
+    /// Whether the <see cref="ReturnValue"/> is task-like (can be awaited).
+    /// </summary>
+    public required bool Async { get; init; }
 }
