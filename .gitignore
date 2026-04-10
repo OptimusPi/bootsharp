@@ -12,3 +12,4 @@ obj
 *.user
 *.nupkg
 package-lock.json
+/publish-out
