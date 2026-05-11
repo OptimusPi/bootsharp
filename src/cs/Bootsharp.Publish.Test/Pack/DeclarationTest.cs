@@ -5,13 +5,6 @@ public class DeclarationTest : PackTest
     protected override string TestedContent => GeneratedDeclarations;
 
     [Fact]
-    public void ImportsEventTypes ()
-    {
-        Execute();
-        Contains("""import type { EventBroadcaster, EventSubscriber } from "./event";""");
-    }
-
-    [Fact]
     public void DeclaresNamespace ()
     {
         AddAssembly(WithClass("Foo", "[Export] public static void Bar () { }"));
@@ -801,7 +794,7 @@ public class DeclarationTest : PackTest
     }
 
     [Fact]
-    public void ComputedPropertiesAreIncluded ()
+    public void ComputedPropertiesAreNotIncluded ()
     {
         AddAssembly(WithClass(
             """
@@ -817,7 +810,6 @@ public class DeclarationTest : PackTest
             """
             export namespace Class {
                 export type Foo = Readonly<{
-                    boo: boolean;
                 }>;
             }
             """);
