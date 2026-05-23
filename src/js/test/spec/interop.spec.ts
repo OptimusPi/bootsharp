@@ -14,6 +14,10 @@ class Imported implements IImportedInstanced {
         await new Promise(res => setTimeout(res, 1));
         return record.id;
     }
+    async getBiAsync(factory?: () => IBidirectional): Promise<IBidirectional> {
+        await new Promise(res => setTimeout(res, 1));
+        return factory?.() ?? new BidirectionalJS();
+    }
 }
 
 class ImportedInner implements IImportedInnerInstanced {
@@ -25,12 +29,11 @@ class ImportedInner implements IImportedInnerInstanced {
 }
 
 class BidirectionalJS implements IBidirectional {
-    onBiChanged = new Event<[IBidirectional]>();
-    #bi: IBidirectional;
-    constructor() { this.#bi = this; }
+    onBiChanged = new Event<[IBidirectional | undefined]>();
+    #bi?: IBidirectional;
     get bi() { return this.#bi; }
     set bi(value) { this.onBiChanged.broadcast(this.#bi = value); }
-    echoBi(bi: IBidirectional) { return bi; }
+    echoBi(bi?: IBidirectional) { return bi ?? null; }
 }
 
 describe("while bootsharp is not booted", () => {
@@ -125,6 +128,8 @@ describe("while bootsharp is booted", () => {
         const handler = vi.fn();
         expect(exported.getInstanceArg()).toStrictEqual("instance-arg");
         expect(await exported.getRecordIdAsync({ id: "rec" })).toStrictEqual("rec");
+        expect(await exported.getBiAsync()).not.toBeInstanceOf(BidirectionalJS);
+        expect(await exported.getBiAsync(() => new BidirectionalJS())).toBeInstanceOf(BidirectionalJS);
         expect(exported.record).toBeUndefined();
         exported.onRecordChanged.subscribe(handler);
         exported.record = { id: "set" };
@@ -146,6 +151,7 @@ describe("while bootsharp is booted", () => {
         const js = new BidirectionalJS();
         const handler = vi.fn();
         exp.onBiChanged.subscribe(handler);
+        expect(exp.echoBi(undefined)).toBe(null);
         expect(exp.echoBi(exp)).toBe(exp);
         expect(exp.echoBi(js)).toBe(js);
         exp.bi = js;
@@ -154,6 +160,9 @@ describe("while bootsharp is booted", () => {
         exp.bi = exp;
         expect(handler).toHaveBeenCalledWith(exp);
         expect(exp.bi).toBe(exp);
+        exp.bi = undefined;
+        expect(handler).toHaveBeenCalledWith(undefined);
+        expect(exp.bi).toBe(undefined);
         exp.onBiChanged.unsubscribe(handler);
         Modules.canInteropWithBidirectional();
     });

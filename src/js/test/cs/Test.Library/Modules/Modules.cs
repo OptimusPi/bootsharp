@@ -32,6 +32,8 @@ public static partial class Modules
         imported.OnRecordChanged += handler;
         Assert(imported.GetInstanceArg() == "instance-arg");
         Assert(await imported.GetRecordIdAsync(new Record("rec-id")) == "rec-id");
+        Assert(await imported.GetBiAsync() is not BidirectionalCS);
+        Assert(await imported.GetBiAsync(() => new BidirectionalCS()) is BidirectionalCS);
         Assert(imported.Record?.Id == "initial-rec");
         imported.Record = new Record("set");
         Assert(imported.Record?.Id == "set");
@@ -55,17 +57,18 @@ public static partial class Modules
         inner.OnCountChanged -= handler;
     }
 
-    [Export] public static IBidirectional ExportBi () => new Bidirectional();
+    [Export] public static IBidirectional ExportBi () => new BidirectionalCS();
     [Import] public static partial IBidirectional ImportBi ();
 
     [Export]
     public static void CanInteropWithBidirectional ()
     {
         var js = ImportBi();
-        var cs = new Bidirectional();
+        var cs = new BidirectionalCS();
         IBidirectional? observed = null;
-        Action<IBidirectional> handler = b => observed = b;
+        Action<IBidirectional?> handler = b => observed = b;
         js.OnBiChanged += handler;
+        Assert(js.EchoBi(null) == null);
         Assert(js.EchoBi(js) == js);
         Assert(js.EchoBi(cs) == cs);
         js.Bi = cs;
@@ -74,6 +77,9 @@ public static partial class Modules
         js.Bi = js;
         Assert(observed == js);
         Assert(js.Bi == js);
+        js.Bi = null;
+        Assert(observed == null);
+        Assert(js.Bi == null);
         js.OnBiChanged -= handler;
     }
 

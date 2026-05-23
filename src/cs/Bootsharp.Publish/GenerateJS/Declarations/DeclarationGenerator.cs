@@ -2,8 +2,12 @@ using System.Reflection;
 
 namespace Bootsharp.Publish;
 
+/// <summary>
+/// Generates TypeScript type declarations.
+/// </summary>
 internal sealed class DeclarationGenerator
 {
+    private readonly HashSet<Type> declared = [];
     private readonly CodeBuilder bld = new();
     private readonly TypeSyntaxBuilder ts;
     private readonly DocumentationBuilder doc;
@@ -21,6 +25,7 @@ internal sealed class DeclarationGenerator
     public string Generate (JSModule module)
     {
         bld.Clear();
+        declared.Clear();
         ts.EnterModule(module);
         foreach (var node in module.Nodes)
             DeclareNode(node);
@@ -42,13 +47,15 @@ internal sealed class DeclarationGenerator
             if (surf != null) doc.Type(surf);
             bld.Enter($"export namespace {node.Name} {{");
         }
-        // Distinct by CLR to discard the other side of a bidirectional (export+import)
-        // instance surface, because both produce identical declarations.
-        foreach (var type in node.Types.DistinctBy(t => t.Clr))
-            if (type is SerializedEnumMeta enu) DeclareEnum(enu);
-            else if (type is SerializedObjectMeta o) DeclareSerialized(o);
-            else if (type is InstanceMeta it) DeclareInstance(it);
-            else if (type is SurfaceMeta srf) DeclareSurface(srf);
+        foreach (var type in node.Types)
+            // Dedup by CLR to discard the other side of a bidirectional (export+import)
+            // instance surface and closed generic variants (all produce same open type).
+            if (declared.Add(type.Clr.IsGenericType ? type.Clr.GetGenericTypeDefinition() : type.Clr))
+                if (type is SerializedEnumMeta enu) DeclareEnum(enu);
+                else if (type is SerializedObjectMeta o) DeclareSerialized(o);
+                else if (type is DelegateMeta d) DeclareDelegate(d);
+                else if (type is InstanceMeta it) DeclareInstance(it);
+                else if (type is SurfaceMeta srf) DeclareSurface(srf);
         foreach (var child in node.Children)
             DeclareNode(child);
         if (wrap) bld.Exit("}");
@@ -80,6 +87,14 @@ internal sealed class DeclarationGenerator
         bld.Exit("}>;");
     }
 
+    private void DeclareDelegate (DelegateMeta del)
+    {
+        doc.Type(del);
+        var inv = del.Invoker;
+        var args = string.Join(", ", inv.Args.Select(a => $"{a.JSName}{ts.BuildArg(a.Info)}"));
+        bld.Line($"export type {ts.BuildName(del.Clr)} = ({args}) => {ts.BuildReturn(inv.Info)};");
+    }
+
     private void DeclareInstance (InstanceMeta it)
     {
         doc.Type(it);
@@ -100,7 +115,7 @@ internal sealed class DeclarationGenerator
         void DeclareEvent (EventMeta evt)
         {
             doc.Event(evt);
-            var args = string.Join(", ", evt.Args.Select(a => $"{a.JSName}: {ts.BuildArg(evt.Info, a.Info)}"));
+            var args = string.Join(", ", evt.Args.Select(a => $"{a.JSName}{ts.BuildArg(evt.Info, a.Info)}"));
             bld.Line($"{evt.JSName}: Event<[{args}]>;");
         }
 
@@ -114,7 +129,7 @@ internal sealed class DeclarationGenerator
         void DeclareMethod (MethodMeta method)
         {
             doc.Method(method);
-            var args = string.Join(", ", method.Args.Select(a => $"{a.JSName}: {ts.BuildArg(a.Info)}"));
+            var args = string.Join(", ", method.Args.Select(a => $"{a.JSName}{ts.BuildArg(a.Info)}"));
             bld.Line($"{method.JSName}({args}): {ts.BuildReturn(method.Info)};");
         }
     }
@@ -129,7 +144,7 @@ internal sealed class DeclarationGenerator
         void DeclareEvent (EventMeta evt)
         {
             doc.Event(evt);
-            var args = string.Join(", ", evt.Args.Select(a => $"{a.JSName}: {ts.BuildArg(evt.Info, a.Info)}"));
+            var args = string.Join(", ", evt.Args.Select(a => $"{a.JSName}{ts.BuildArg(evt.Info, a.Info)}"));
             bld.Line($"export const {evt.JSName}: Event<[{args}]>;");
         }
 
@@ -149,7 +164,7 @@ internal sealed class DeclarationGenerator
         void DeclareMethod (MethodMeta method)
         {
             doc.Method(method);
-            var args = string.Join(", ", method.Args.Select(a => $"{a.JSName}: {ts.BuildArg(a.Info)}"));
+            var args = string.Join(", ", method.Args.Select(a => $"{a.JSName}{ts.BuildArg(a.Info)}"));
             var result = ts.BuildReturn(method.Info);
             if (method.IK == InteropKind.Export)
                 bld.Line($"export function {method.JSName}({args}): {result};");

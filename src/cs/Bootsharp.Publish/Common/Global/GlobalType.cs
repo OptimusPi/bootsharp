@@ -24,6 +24,14 @@ internal static class GlobalType
         return type.GetMethod(nameof(Task.GetAwaiter)) != null;
     }
 
+    public static bool IsDelegate (Type type)
+    {
+        for (var bs = type.BaseType; bs != null; bs = bs.BaseType)
+            if (bs.FullName == "System.MulticastDelegate")
+                return true;
+        return false;
+    }
+
     public static bool IsTaskWithResult (Type type, [NotNullWhen(true)] out Type? result)
     {
         return (result = IsTaskLike(type) && type.GenericTypeArguments.Length == 1
@@ -83,21 +91,17 @@ internal static class GlobalType
         return GetNullity(param);
     }
 
+    public static bool IsNullable (NullabilityInfo? info) => info?.ReadState == NullabilityState.Nullable;
     public static bool IsNullable (Type type, NullabilityInfo? info) => IsNullable(type, info, out _);
     public static bool IsNullable (Type type, [NotNullWhen(true)] out Type? value) => IsNullable(type, null, out value);
     public static bool IsNullable (Type type, NullabilityInfo? info, [NotNullWhen(true)] out Type? value)
     {
-        if (info?.ReadState == NullabilityState.Nullable) value = type;
-        else if (type.IsGenericType && type.Name.Contains("Nullable`") && type.GenericTypeArguments.Length == 1)
+        if (type.IsGenericType && type.Name.Contains("Nullable`") && type.GenericTypeArguments.Length == 1)
             value = type.GenericTypeArguments[0];
+        else if (IsNullable(info) && (!type.IsGenericTypeParameter || IsUserType(type)))
+            value = type;
         else value = null;
         return value != null;
-    }
-
-    public static string BuildJSName (string name)
-    {
-        name = ToFirstLower(name);
-        return name == "function" ? "fn" : name;
     }
 
     public static string PrependIdArg (string args)
@@ -106,39 +110,41 @@ internal static class GlobalType
         return $"_id, {args}";
     }
 
-    public static string BuildId (Type type)
+    public static string BuildId (Type type, bool full = true, char separator = '_')
     {
-        var builder = new StringBuilder();
-        foreach (var c in BuildSyntax(type).Replace("global::", ""))
-            if (char.IsLetterOrDigit(c) || c == '_') builder.Append(c);
-            else if (c == '.') builder.Append('_');
-            else if (c == '?') builder.Append("OrNull");
-            else if (c == '[') builder.Append("Array");
-            else if (c == '<') builder.Append("_Of_");
-            else if (c == ',') builder.Append("_And_");
-        return builder.ToString();
+        var sb = new StringBuilder();
+        foreach (var c in BuildSyntax(type, full: full).Replace("global::", ""))
+            if (char.IsLetterOrDigit(c) || c == separator) sb.Append(c);
+            else if (c == '.') sb.Append(separator);
+            else if (c == '?') sb.Append("OrNull");
+            else if (c == '[') sb.Append("Array");
+            else if (c == '<') sb.Append("_Of_");
+            else if (c == ',') sb.Append("_And_");
+        return sb.ToString();
     }
 
-    public static string BuildSyntax (Type type, NullabilityInfo? nul = null, bool forceNil = false)
+    public static string BuildSyntax (Type type, NullabilityInfo? nul = null, bool forceNil = false, bool full = true)
     {
-        var nil = (forceNil || nul?.ReadState == NullabilityState.Nullable) ? "?" : "";
+        var nil = (forceNil || IsNullable(nul)) ? "?" : "";
+        var global = full ? "global::" : "";
         if (IsVoid(type)) return "void";
         if (type.IsArray) return $"{BuildSyntax(type.GetElementType()!, nul?.ElementType)}[]{nil}";
         if (type.IsGenericType) return BuildGeneric(type, type.GenericTypeArguments);
-        return $"global::{ResolveTypeName(type)}{nil}";
+        return $"{global}{ResolveTypeName(type)}{nil}";
 
         string BuildGeneric (Type type, Type[] args)
         {
-            if (IsNullable(type, out var value)) return BuildSyntax(value, nul, true);
+            if (IsNullable(type, out var value)) return BuildSyntax(value, nul, true, full);
             var name = TrimGeneric(ResolveTypeName(type));
-            var typeArgs = string.Join(", ", args.Select((a, i) => BuildSyntax(a, nul?.GenericTypeArguments[i])));
-            return $"global::{name}<{typeArgs}>";
+            var typeArgs = string.Join(", ", args.Select((a, i) =>
+                BuildSyntax(a, nul?.GenericTypeArguments[i], forceNil, full)));
+            return $"{global}{name}<{typeArgs}>";
         }
 
-        static string ResolveTypeName (Type type)
+        string ResolveTypeName (Type type)
         {
             if (type.IsNested) return $"{ResolveTypeName(type.DeclaringType!)}.{type.Name}";
-            if (type.Namespace is null) return type.Name;
+            if (!full || type.Namespace is null) return type.Name;
             return $"{type.Namespace}.{type.Name}";
         }
     }

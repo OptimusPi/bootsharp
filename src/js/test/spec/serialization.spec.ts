@@ -1,8 +1,8 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { bootRuntime } from "../cs";
-import { Serialization } from "../cs/Test/bin/bootsharp/generated/modules/test.g.mjs";
 import type { Primitives, Union } from "../cs/Test/bin/bootsharp/generated/modules/test.g.mjs";
-import { Registries, IRegistryProvider, TrackType } from "../cs/Test/bin/bootsharp/generated/modules/test/library.g.mjs";
+import { Serialization, ItemA } from "../cs/Test/bin/bootsharp/generated/modules/test.g.mjs";
+import { Registries, IRegistryProvider, Modules, TrackType, Record, IBidirectional } from "../cs/Test/bin/bootsharp/generated/modules/test/library.g.mjs";
 
 describe("serialization", () => {
     beforeAll(bootRuntime);
@@ -115,5 +115,33 @@ describe("serialization", () => {
             .toStrictEqual(new Map([[1, 2], [3, 4], [5, 0]]));
         expect(Serialization.echoDictionary(undefined)).toBeNull();
         expect(Serialization.echoNestedDictionary(undefined)).toBeNull();
+    });
+    it("imported instances survive serialization", () => {
+        const bi = Modules.exportBi();
+        const aHandler = vi.fn();
+        const biHandler = vi.fn();
+        const changed = (item?: ItemA, record?: Record) => aHandler(item, record);
+        const biChanged = (b?: IBidirectional, record?: Record) => biHandler(b, record);
+        const getChanged = (b: IBidirectional) => b === bi ? biChanged : <never>null;
+        Serialization.importedInstancesSurviveSerialization(
+            { shared: "", a: { bi, changed }, b: { strings: [], times: [], getChanged } }, bi
+        );
+        expect(aHandler).toHaveBeenCalledWith(expect.objectContaining({ bi, changed }), { id: "a-rec" });
+        expect(biHandler).toHaveBeenCalledWith(bi, { id: "bi-rec" });
+    });
+    it("exported instances survive serialization", () => {
+        const bi = Modules.exportBi();
+        const handler = vi.fn();
+        const changed = (item?: ItemA, record?: Record) => handler(item, record);
+        const getChanged = (b: IBidirectional) => b === bi ? changed : <never>null;
+        const echoed = Serialization.echoUnions([{
+            shared: "", a: { bi, changed }, b: { strings: [], times: [], getChanged }
+        }])![0]!;
+        expect(echoed.a!.bi).toStrictEqual(bi);
+        expect(echoed.a!.changed).toStrictEqual(changed);
+        expect(echoed.b!.getChanged).toStrictEqual(getChanged);
+        expect(echoed.b!.getChanged!(bi)).toStrictEqual(changed);
+        echoed.b!.getChanged!(bi)!(bi, undefined);
+        expect(handler).toHaveBeenCalledWith(bi, undefined);
     });
 });

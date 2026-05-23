@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Bootsharp.Publish;
 
 /// <summary>
@@ -60,6 +62,18 @@ internal record InstanceMeta (Type Clr) : ProxyMeta(Clr)
 }
 
 /// <summary>
+/// Describes an instance surface projected from a delegate type.
+/// </summary>
+internal sealed record DelegateMeta (Type Clr) : InstanceMeta(Clr)
+{
+    /// <summary>
+    /// Describes the "Invoke" method of the delegate.
+    /// </summary>
+    public MethodMeta Invoker => (MethodMeta)Members.First();
+    protected override bool PrintMembers (StringBuilder builder) => base.PrintMembers(builder); // w/a C# bug
+}
+
+/// <summary>
 /// Describes the generated proxy used by <see cref="ProxyMeta"/>.
 /// </summary>
 public record SurfaceProxy
@@ -69,19 +83,7 @@ public record SurfaceProxy
     /// </summary>
     public required string Id { get; init; }
     /// <summary>
-    /// Namespace of the generated C# proxy type.
-    /// </summary>
-    public required string Space { get; init; }
-    /// <summary>
-    /// Type name of the generated C# proxy type.
-    /// </summary>
-    public required string Name { get; init; }
-    /// <summary>
     /// Fully qualified C# syntax of the generated C# proxy type.
     /// </summary>
     public required string Syntax { get; init; }
-    /// <summary>
-    /// Full object name of the generated proxy on the JavaScript side.
-    /// </summary>
-    public required string JS { get; init; }
 }

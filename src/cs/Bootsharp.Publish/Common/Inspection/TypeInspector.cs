@@ -71,9 +71,11 @@ internal sealed class TypeInspector
     {
         if (its.TryGetValue((type, ik), out var it)) return it;
         if (IsTaskWithResult(type, out var result)) return InspectInstance(result, ik);
+        if (IsDelegate(type)) return its[(type, ik)] = InspectDelegate(type, ik);
         if (!IsInstanced(type)) return null;
-        // instances with events need specialized registrars to un-/sub them
-        var special = type.GetEvents().Length > 0;
+        if (ik == InteropKind.Import && !type.IsInterface) // likely passing back an exported instance — reclassify
+            return InspectInstance(type, InteropKind.Export)!;
+        var special = type.GetEvents().Length > 0; // instances with events need specialized registrars to un-/sub
         it = its[(type, ik)] = new(type) {
             IK = ik,
             Proxy = BuildProxy(type, ik),
@@ -91,6 +93,14 @@ internal sealed class TypeInspector
             if (type.IsInterface) return true;
             return type.IsClass && !IsStatic(type) && !IsRecord(type); // records are immutable by convention
         }
+    }
+
+    private DelegateMeta InspectDelegate (Type type, InteropKind ik)
+    {
+        var members = new List<MemberMeta>();
+        var del = new DelegateMeta(type) { IK = ik, Proxy = BuildProxy(type, ik), Members = members };
+        members.Add(InspectMethod(type.GetMethod("Invoke")!, ik, del));
+        return del;
     }
 
     private T InspectMembers<T> (T surf, InteropKind ik) where T : SurfaceMeta
@@ -127,7 +137,7 @@ internal sealed class TypeInspector
     private EventMeta InspectEvent (EventInfo evt, InteropKind ik, SurfaceMeta srf) => new(evt) {
         IK = ik,
         Surf = srf,
-        Name = evt.Name,
+        Name = BuildCSName(evt.Name),
         JSName = WithPref(Pref.Event, evt.Name, BuildJSName(evt.Name)),
         TypeSyntax = BuildSyntax(evt.EventHandlerType!, GetNullity(evt)),
         Args = evt.EventHandlerType!.GetMethod("Invoke")!.GetParameters()
@@ -137,7 +147,7 @@ internal sealed class TypeInspector
     private PropertyMeta InspectProperty (PropertyInfo prop, InteropKind ik, SurfaceMeta srf) => new(prop) {
         IK = ik,
         Surf = srf,
-        Name = prop.Name,
+        Name = BuildCSName(prop.Name),
         JSName = WithPref(Pref.Property, prop.Name, BuildJSName(prop.Name)),
         TypeSyntax = BuildSyntax(prop.PropertyType, GetNullity(prop)),
         Get = prop.GetMethod != null ? InspectValue(prop.PropertyType, GetNullity(prop), ik) : null,
@@ -147,7 +157,7 @@ internal sealed class TypeInspector
     private MethodMeta InspectMethod (MethodInfo method, InteropKind ik, SurfaceMeta srf) => new(method) {
         IK = ik,
         Surf = srf,
-        Name = method.Name,
+        Name = BuildCSName(method.Name),
         JSName = WithPref(Pref.Method, method.Name, BuildJSName(method.Name)),
         Args = method.GetParameters().Select(p => InspectArg(p, GetNullity(p), ik.Invert)).ToArray(),
         Return = InspectValue(method.ReturnParameter.ParameterType, GetNullity(method.ReturnParameter), ik),
@@ -156,7 +166,7 @@ internal sealed class TypeInspector
     };
 
     private ArgumentMeta InspectArg (ParameterInfo param, NullabilityInfo nil, InteropKind ik) => new(param) {
-        Name = param.Name!,
+        Name = BuildCSName(param.Name!),
         JSName = BuildJSName(param.Name!),
         Value = InspectValue(param.ParameterType, nil, ik)
     };
@@ -176,13 +186,9 @@ internal sealed class TypeInspector
 
     private SurfaceProxy BuildProxy (Type type, InteropKind ik)
     {
-        var space = "Bootsharp.Generated." + (ik == InteropKind.Export ? "Exports" : "Imports");
-        if (type.Namespace != null) space += $".{type.Namespace}";
-        var name = "JS" + (type.IsInterface ? type.Name[1..] : type.Name);
-        var id = $"{space}.{name}".Replace(".", "_").Replace('+', '_');
-        var stx = $"global::{space}.{name}";
-        var js = type.Namespace == null ? name : $"{type.Namespace}.{name}".Replace(".", "_");
-        return new SurfaceProxy { Id = id, Space = space, Name = name, Syntax = stx, JS = js };
+        var id = "JS_" + (ik == InteropKind.Export ? "Export_" : "Import_") + BuildId(type);
+        var stx = $"global::Bootsharp.Generated.{id}";
+        return new SurfaceProxy { Id = id, Syntax = stx };
     }
 
     private InteropKind? ResolveIK (MemberInfo info)
