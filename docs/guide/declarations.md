@@ -325,7 +325,7 @@ Bootsharp uses different TypeScript nullish forms depending on where a nullable 
 - nullable return values become `| null`
 - nullable collection elements and dictionary values become `| null`
 
-This is intentional and optimized for TypeScript ergonomics. Refer to the dedicated [nullability guide](/guide/nullability) for the full convention and examples.
+This is intentional and optimized for TypeScript ergonomics: `undefined` fits omitted or optional inputs, while `null` fits explicit data crossing the interop boundary.
 
 ## Namespaces
 
@@ -350,6 +350,8 @@ Class.baz();
 ```
 
 :::
+
+You can control how the C#-side namespace path resolves to the generated module path with the `Space` and `Name` options in [preferences](/guide/preferences).
 
 ## Configuring Type Mappings
 
