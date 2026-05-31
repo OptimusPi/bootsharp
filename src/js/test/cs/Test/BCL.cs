@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -39,10 +38,6 @@ public static partial class BCL
         Assert(!echoed.IsCancellationRequested);
         source.Cancel();
         Assert(echoed.IsCancellationRequested);
-        ct = default;
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
 
         [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_source")]
         static extern ref CancellationTokenSource GetSource (ref CancellationToken ct);

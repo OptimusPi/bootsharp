@@ -34,9 +34,11 @@ internal sealed class JSInstanceGenerator (bool debug, JSModules md)
               $i.{{it.Importer}} = function (it) {
                   return $i.import(it, _id => {
                       {{Fmt(evt.Select(e => $"it.{e.JSName}.subscribe(handle{e.Name});"))}}
+                      /* v8 ignore start -- not reliably coverable, as it's invoked on GC */
                       return () => {
                           {{Fmt(evt.Select(e => $"it.{e.JSName}.unsubscribe(handle{e.Name});"), 2)}}
                       };
+                      /* v8 ignore stop */
 
                       {{Fmt(evt.Select(EmitHandler))}}
                   });

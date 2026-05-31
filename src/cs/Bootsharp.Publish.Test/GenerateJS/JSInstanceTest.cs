@@ -138,9 +138,11 @@ public class JSInstanceTest : GenerateJSTest
             $i.import_IImported = function (it) {
                 return $i.import(it, _id => {
                     it.changed.subscribe(handleChanged);
+                    /* v8 ignore start -- not reliably coverable, as it's invoked on GC */
                     return () => {
                         it.changed.unsubscribe(handleChanged);
                     };
+                    /* v8 ignore stop */
 
                     function handleChanged(arg1, arg2) { exports.JS_Import_IImported_InvokeChanged(_id, $i.import_IImported(arg1), serialize(arg2, $s.Info)); }
                 });
