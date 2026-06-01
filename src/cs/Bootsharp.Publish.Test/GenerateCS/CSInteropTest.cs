@@ -389,6 +389,51 @@ public class CSInteropTest : GenerateCSTest
     }
 
     [Fact]
+    public void GeneratesSupportedGenericMethods ()
+    {
+        AddAssembly(With(
+            """
+            public interface IShape {}
+            public class Circle : IShape { public double Radius { get; set; } }
+            public class Square : IShape { public double Side { get; set; } }
+
+            public class Class
+            {
+                [Export] public static T Make<T> () where T : IShape => default!;
+                [Export] public static void Take<T> (T shape) where T : IShape {}
+                [Export] public static void Mix<T> (T shape, int n) where T : IShape {}
+                [Export] public static T? EchoNull<T> (T? shape) where T : class, IShape => shape;
+            }
+            """));
+        Execute();
+        Contains("Class_MakeOfCircle () => Instances.Export(global::Class.Make<global::Circle>())");
+        Contains("Class_MakeOfSquare () => Instances.Export(global::Class.Make<global::Square>())");
+        Contains("Class_TakeOfCircle (int shape) => global::Class.Take<global::Circle>(Instances.Resolve<global::Circle>(shape))");
+        Contains("Class_TakeOfSquare (int shape) => global::Class.Take<global::Square>(Instances.Resolve<global::Square>(shape))");
+        Contains("Class_MixOfCircle (int shape, global::System.Int32 n) => global::Class.Mix<global::Circle>(Instances.Resolve<global::Circle>(shape), n)");
+        Contains("Class_EchoNullOfCircle (int shape) => Instances.Export(global::Class.EchoNull<global::Circle>(Instances.Resolve<global::Circle>(shape)))");
+    }
+
+    [Fact]
+    public void GeneratesGenericMethodsForCompatibleTypesInOtherAssemblies ()
+    {
+        AddAssembly("Contracts.dll", With("public interface IShape {}"));
+        AddAssembly("Shapes.dll", With(
+            """
+            public class Circle : IShape { public double Radius { get; set; } }
+            public class Square : IShape { public double Side { get; set; } }
+
+            public class Class
+            {
+                [Export] public static T Make<T> () where T : IShape => default!;
+            }
+            """));
+        Execute();
+        Contains("Class_MakeOfCircle () => Instances.Export(global::Class.Make<global::Circle>())");
+        Contains("Class_MakeOfSquare () => Instances.Export(global::Class.Make<global::Square>())");
+    }
+
+    [Fact]
     public void DoesNotSerializeTypesThatShouldNotBeSerialized ()
     {
         AddAssembly(With(
