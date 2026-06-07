@@ -434,6 +434,23 @@ public class CSInteropTest : GenerateCSTest
     }
 
     [Fact]
+    public void GeneratesNullableGenericValueType ()
+    {
+        AddAssembly(With(
+            """
+            namespace Space;
+
+            public class Class
+            {
+                [Import] public static KeyValuePair<int, string?>? Fun (KeyValuePair<int, string?>? a) =>
+                    Proxies.Get<Func<KeyValuePair<int, string?>?, KeyValuePair<int, string?>?>>("Space.Class.Fun")(a);
+            }
+            """));
+        Execute();
+        Contains("KeyValuePair<global::System.Int32, global::System.String?>? Space_Class_Fun (global::System.Collections.Generic.KeyValuePair<global::System.Int32, global::System.String?>? a) =>");
+    }
+
+    [Fact]
     public void DoesNotSerializeTypesThatShouldNotBeSerialized ()
     {
         AddAssembly(With(
@@ -486,6 +503,31 @@ public class CSInteropTest : GenerateCSTest
         Contains("public static global::Space.Record Space_Class_FunA (global::Space.Record a) => Serializer.Deserialize(Space_Class_FunA_Serialized(Serializer.Serialize(a, SerializerContext.Space_Record)), SerializerContext.Space_Record);");
         Contains("""[JSImport("Class.funBSerialized", "space")] [return: JSMarshalAs<JSType.Promise<JSType.BigInt>>] internal static partial global::System.Threading.Tasks.Task<long> Space_Class_FunB_Serialized ([JSMarshalAs<JSType.BigInt>] long a);""");
         Contains("public static async global::System.Threading.Tasks.Task<global::Space.Record?[]?> Space_Class_FunB (global::Space.Record?[]? a) => Serializer.Deserialize(await Space_Class_FunB_Serialized(Serializer.Serialize(a, SerializerContext.Space_RecordArray)), SerializerContext.Space_RecordArray);");
+    }
+
+    [Fact]
+    public void SerializedDelegatesKeepDirection ()
+    {
+        AddAssembly(With(
+            """
+            public delegate void Imported ();
+            public delegate void Exported ();
+            public interface IFoo { string Value { get; set; } }
+            public interface IBar { string Value { get; set; } }
+            public record RecordX (IFoo Foo, Imported Cb);
+            public record RecordY (IBar Bar, Exported Cb);
+
+            public class Class
+            {
+                [Export] public static RecordY Export () => default!;
+                [Import] public static RecordX Import () => default!;
+            }
+            """));
+        Execute();
+        Contains("JS_Import_Imported_Invoke");
+        Contains("JS_Export_Exported_Invoke");
+        DoesNotContain("JS_Export_Imported");
+        DoesNotContain("JS_Import_Exported");
     }
 
     [Fact]
