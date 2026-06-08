@@ -1,7 +1,11 @@
 import { dotnet } from "./bin/Release/net10.0/browser-wasm/publish/dotnet.js";
+import { getNumber, getStruct } from "../fixtures.mjs";
 
 /** @returns {Promise<import("../bench.mjs").Exports>} */
 export async function init() {
+    global.getNumber = getNumber;
+    global.getStruct = getStruct;
+
     const runtime = await dotnet.withDiagnosticTracing(false).create();
     await runtime.runMain("DotNetLLVM", []);
 
