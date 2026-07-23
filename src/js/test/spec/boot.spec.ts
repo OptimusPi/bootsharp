@@ -6,8 +6,9 @@ import type { BootOptions } from "../cs/Test/bin/bootsharp/index.mjs";
 async function setup() {
     vi.resetModules();
     const cs = await import("../cs");
-    cs.Test.Program.onMainInvoked = vi.fn();
-    return cs;
+    const test = await import("../cs/Test/bin/bootsharp/generated/modules/test.g.mjs");
+    test.Program.onMainInvoked = vi.fn();
+    return { ...cs, Program: test.Program };
 }
 
 describe("boot", () => {
@@ -38,9 +39,9 @@ describe("boot", () => {
         await boot;
     });
     it("invokes program main on boot", async () => {
-        const { bootsharp, resources, Test } = await setup();
+        const { bootsharp, resources, Program } = await setup();
         await bootsharp.boot(resources);
-        expect(Test.Program.onMainInvoked).toHaveBeenCalledOnce();
+        expect(Program.onMainInvoked).toHaveBeenCalledOnce();
     });
     it("enables debugging when debugging resources are present", async () => {
         const { bootsharp, resources } = await setup();
@@ -73,7 +74,7 @@ describe("boot", () => {
         expect(config.globalizationMode).toStrictEqual("invariant");
     });
     it("fetches resources when root is specified", async () => {
-        const { bootsharp, resources, Test } = await setup();
+        const { bootsharp, resources, Program } = await setup();
         const bin = [...resources.assemblies!, ...resources.icu!, ...resources.symbols!, ...resources.pdb!];
         const fetchSpy = vi.fn(url => {
             const name = url.substring(url.lastIndexOf("/") + 1);
@@ -84,8 +85,8 @@ describe("boot", () => {
         global.fetch = <never>fetchSpy;
         try { await bootsharp.boot("/bin"); }
         finally { global.fetch = fetch; }
-        expect(Test.Program.onMainInvoked).toHaveBeenCalled();
-        expect(fetchSpy).toHaveBeenCalledWith("/bin/dotnet.native.wasm");
+        expect(Program.onMainInvoked).toHaveBeenCalled();
+        expect(fetchSpy).toHaveBeenCalledWith("/bin/bootsharp.wasm");
         expect(fetchSpy).toHaveBeenCalledWith("/bin/Bootsharp.Common.wasm");
     });
     it("respects boot customs", async () => {
@@ -103,13 +104,13 @@ describe("boot", () => {
                         resolvedUrl: resolve("test/cs/Test/bin/bootsharp/dotnet/dotnet.native.js")
                     }],
                     wasmNative: [{
-                        name: "dotnet.native.wasm",
-                        buffer: resources.wasm
+                        name: "bootsharp.wasm",
+                        buffer: resources.wasm as ArrayBuffer
                     }],
                     assembly: resources.assemblies?.map(a => ({
                         name: a.name,
                         virtualPath: a.name,
-                        buffer: a.content!
+                        buffer: a.content as ArrayBuffer
                     }))
                 }
             },
@@ -123,6 +124,20 @@ describe("boot", () => {
         expect(customs.import).toHaveBeenCalledOnce();
         expect(customs.run).toHaveBeenCalledOnce();
         expect(customs.export).toHaveBeenCalledOnce();
+    });
+    it("can boot with base64 resources", async () => {
+        const { bootsharp, resources, Program } = await setup();
+        const encode = (buf: ArrayBuffer) => Buffer.from(buf).toString("base64");
+        const encodeAll = (bins: typeof resources.assemblies) =>
+            bins?.map(b => ({ name: b.name, content: encode(b.content as ArrayBuffer) }));
+        await bootsharp.boot({
+            wasm: encode(resources.wasm as ArrayBuffer),
+            assemblies: encodeAll(resources.assemblies),
+            icu: encodeAll(resources.icu),
+            symbols: encodeAll(resources.symbols),
+            pdb: encodeAll(resources.pdb)
+        });
+        expect(Program.onMainInvoked).toHaveBeenCalledOnce();
     });
     it("can boot when program has no exports", async () => {
         const { bootsharp, resources } = await setup();

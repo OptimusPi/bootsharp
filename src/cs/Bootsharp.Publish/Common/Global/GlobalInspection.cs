@@ -1,24 +1,32 @@
 global using static Bootsharp.Publish.GlobalInspection;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 
 namespace Bootsharp.Publish;
 
-internal delegate TypeMeta InspectType (Type type, InteropKind ik);
-
 internal static class GlobalInspection
 {
-    public static MetadataLoadContext CreateLoadContext (string directory)
-    {
-        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
-        var assemblyPaths = Directory.GetFiles(runtimeDir, "*.dll").Order().ToList();
-        foreach (var path in Directory.GetFiles(directory, "*.dll").Order())
-            if (assemblyPaths.All(p => Path.GetFileName(p) != Path.GetFileName(path)))
-                assemblyPaths.Add(path);
-        var resolver = new PathAssemblyResolver(assemblyPaths);
-        return new MetadataLoadContext(resolver);
-    }
+    private static readonly HashSet<string> csKeywords = [
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",
+        "checked", "class", "const", "continue", "decimal", "default", "delegate",
+        "do", "double", "else", "enum", "event", "explicit", "extern", "false",
+        "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit",
+        "in", "int", "interface", "internal", "is", "lock", "long", "namespace",
+        "new", "null", "object", "operator", "out", "override", "params", "private",
+        "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
+        "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
+        "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked",
+        "unsafe", "ushort", "using", "virtual", "void", "volatile", "while"
+    ];
+
+    private static readonly HashSet<string> jsKeywords = [
+        "await", "break", "case", "catch", "class", "const", "continue", "debugger",
+        "default", "delete", "do", "else", "enum", "export", "extends", "false",
+        "finally", "for", "function", "if", "implements", "import", "in",
+        "instanceof", "interface", "let", "new", "null", "package", "private",
+        "protected", "public", "return", "static", "super", "switch", "this",
+        "throw", "true", "try", "typeof", "var", "void", "while", "with", "yield"
+    ];
 
     public static bool IsUserAssembly (string assemblyName) =>
         !assemblyName.StartsWith("System.", StringComparison.OrdinalIgnoreCase) &&
@@ -28,17 +36,21 @@ internal static class GlobalInspection
 
     public static bool IsUserType (Type type)
     {
+        if (type.Namespace?.StartsWith("Bootsharp.Generated") == true) return false;
+        if (Preferences.IsSpecialized(type)) return true;
+        if (IsDelegate(type)) return true;
         if (type.IsArray) return false;
         return IsUserAssembly(type.Assembly.FullName!);
     }
 
-    public static bool IsInstancedType (Type type)
+    public static bool IsAttribute<T> (CustomAttributeData attr) where T : Attribute
     {
-        // Instanced types are mutable user types that are passed by reference when crossing the
-        // interop boundary (as opposed to serialized immutable types, which are copied by value).
-        if (!IsUserType(type)) return false;
-        if (type.IsInterface) return true;
-        return type.IsClass && !IsStatic(type) && !IsRecord(type); // records are immutable by convention
+        return attr.AttributeType.FullName == typeof(T).FullName;
+    }
+
+    public static T? GetAttributeArg<T> (CustomAttributeData attr, int idx = 0) where T : class
+    {
+        return attr.ConstructorArguments.ElementAtOrDefault(idx).Value as T;
     }
 
     public static bool IsAutoProperty (PropertyInfo prop)
@@ -49,11 +61,33 @@ internal static class GlobalInspection
         return backingField != null;
     }
 
-    public static string WithPrefs (IReadOnlyCollection<Preference> prefs, string input, string @default)
+    public static string BuildCSName (string name)
     {
-        foreach (var pref in prefs)
-            if (Regex.IsMatch(input, pref.Pattern))
-                return Regex.Replace(input, pref.Pattern, pref.Replacement);
-        return @default;
+        return csKeywords.Contains(name) ? $"@{name}" : name;
+    }
+
+    public static string BuildJSName (string name)
+    {
+        name = ToFirstLower(name);
+        return jsKeywords.Contains(name) ? $"${name}" : name;
+    }
+
+    extension (IReadOnlyCollection<TypeMeta> types)
+    {
+        public bool HasBase (Type clr, [NotNullWhen(true)] out TypeMeta? bs)
+        {
+            bs = types.FirstOrDefault(t => t.Clr == clr.BaseType);
+            return bs != null && IsUserType(bs.Clr);
+        }
+
+        public TypeMeta First (Type clr)
+        {
+            return types.First(t => IsSameType(t.Clr, clr));
+        }
+
+        public bool Has (Type clr)
+        {
+            return types.Any(t => IsSameType(t.Clr, clr));
+        }
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Bootsharp;
+using Test.Library;
 
 namespace Test;
 
@@ -43,13 +44,25 @@ public readonly record struct Union
     private Union (string shared) => Shared = shared;
 }
 
-public readonly record struct ItemA (string? String, IReadOnlyDictionary<string, int?>? Map);
-public readonly record struct ItemB (string[] Strings, IReadOnlyCollection<DateTime?> Times, IReadOnlyList<int>? Ints);
+public readonly record struct ItemA (
+    string? String,
+    IReadOnlyDictionary<string, int?>? Map,
+    IBidirectional? Bi,
+    RecordChanged<ItemA?>? Changed
+);
+
+public readonly record struct ItemB (
+    string[] Strings,
+    IReadOnlyCollection<DateTime?> Times,
+    IReadOnlyList<int>? Ints,
+    Func<IBidirectional, RecordChanged<IBidirectional?>?>? GetChanged
+);
 
 public static class Serialization
 {
     [Export] public static Primitives?[]? EchoPrimitives (Primitives?[]? value) => value;
     [Export] public static Union?[]? EchoUnions (Union?[]? value) => value;
+    [Export] public static Static.Square?[]? EchoSquares (Static.Square?[]? value) => value;
     [Export] public static byte[]? EchoBytes (byte[]? value) => value;
     [Export] public static int[]? EchoIntArray (int[]? value) => value;
     [Export] public static double[]? EchoDoubleArray (double[]? value) => value;
@@ -61,10 +74,20 @@ public static class Serialization
     [Export] public static List<int>?[]? EchoNestedIntList (List<int>?[]? value) => value;
     [Export] public static Dictionary<string, string?>? EchoDictionary (Dictionary<string, string?>? value) => value;
     [Export] public static Dictionary<string, string?>?[]? EchoNestedDictionary (Dictionary<string, string?>?[]? value) => value;
-    [Export] public static IList<int> EchoListInterface (IList<int> value) => value;
     [Export] public static IReadOnlyList<int> EchoReadOnlyList (IReadOnlyList<int> value) => value;
-    [Export] public static ICollection<int> EchoCollection (ICollection<int> value) => value;
     [Export] public static IReadOnlyCollection<int> EchoReadOnlyCollection (IReadOnlyCollection<int> value) => value;
-    [Export] public static IDictionary<int, int> EchoDictionaryInterface (IDictionary<int, int> value) => value;
-    [Export] public static IReadOnlyDictionary<int, int> EchoReadOnlyDictionary (IReadOnlyDictionary<int, int> value) => value;
+    [Export] public static IReadOnlyDictionary<string, string> EchoReadOnlyDictionary (IReadOnlyDictionary<string, string> value) => value;
+
+    [Export]
+    public static void ImportedInstancesSurviveSerialization (Union union, IBidirectional bi)
+    {
+        Assert(union.A?.Bi == bi);
+        var biChanged = union.B?.GetChanged?.Invoke(bi);
+        Assert(biChanged != null);
+        Assert(union.B?.GetChanged?.Invoke(new BidirectionalCS()) == null);
+        union.A?.Changed?.Invoke(union.A, new Record("a-rec"));
+        union.A?.Changed?.Invoke(null, null);
+        biChanged!.Invoke(bi, new Record("bi-rec"));
+        biChanged.Invoke(null, null);
+    }
 }

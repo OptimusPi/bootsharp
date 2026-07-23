@@ -52,14 +52,13 @@ export default defineConfig({
                         { text: "Introduction", link: "/guide/" },
                         { text: "Getting Started", link: "/guide/getting-started" },
                         { text: "Type Declarations", link: "/guide/declarations" },
-                        { text: "Nullability", link: "/guide/nullability" },
-                        { text: "Namespaces", link: "/guide/namespaces" },
-                        { text: "Events", link: "/guide/events" },
                         { text: "Serialization", link: "/guide/serialization" },
                         { text: "Interop Modules", link: "/guide/interop-modules" },
                         { text: "Interop Instances", link: "/guide/interop-instances" },
-                        { text: "Preferences", link: "/guide/preferences" },
+                        { text: "Renaming", link: "/guide/renaming" },
+                        { text: "Specialization", link: "/guide/specialization" },
                         { text: "Build Configuration", link: "/guide/build-config" },
+                        { text: "Sideloading", link: "/guide/sideloading" },
                         { text: "NativeAOT-LLVM", link: "/guide/llvm" }
                     ]
                 },

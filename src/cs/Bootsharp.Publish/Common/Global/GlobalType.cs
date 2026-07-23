@@ -1,7 +1,10 @@
 global using static Bootsharp.Publish.GlobalType;
+global using Nullity = System.Reflection.NullabilityInfo;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Bootsharp.Publish;
 
@@ -21,6 +24,14 @@ internal static class GlobalType
     public static bool IsTaskLike (Type type)
     {
         return type.GetMethod(nameof(Task.GetAwaiter)) != null;
+    }
+
+    public static bool IsDelegate (Type type)
+    {
+        for (var t = type.BaseType; t != null; t = t.BaseType)
+            if (t.FullName == "System.MulticastDelegate")
+                return true;
+        return false;
     }
 
     public static bool IsTaskWithResult (Type type, [NotNullWhen(true)] out Type? result)
@@ -43,11 +54,11 @@ internal static class GlobalType
 
         static bool IsList (Type type) =>
             type.IsGenericType &&
-            (type.GetGenericTypeDefinition().FullName == typeof(List<>).FullName ||
-             type.GetGenericTypeDefinition().FullName == typeof(IList<>).FullName ||
-             type.GetGenericTypeDefinition().FullName == typeof(IReadOnlyList<>).FullName ||
-             type.GetGenericTypeDefinition().FullName == typeof(ICollection<>).FullName ||
-             type.GetGenericTypeDefinition().FullName == typeof(IReadOnlyCollection<>).FullName);
+            (OpenGeneric(type).FullName == typeof(List<>).FullName ||
+             OpenGeneric(type).FullName == typeof(IList<>).FullName ||
+             OpenGeneric(type).FullName == typeof(IReadOnlyList<>).FullName ||
+             OpenGeneric(type).FullName == typeof(ICollection<>).FullName ||
+             OpenGeneric(type).FullName == typeof(IReadOnlyCollection<>).FullName);
     }
 
     public static bool IsDictionary (Type type, [NotNullWhen(true)] out Type? key, [NotNullWhen(true)] out Type? value)
@@ -62,52 +73,43 @@ internal static class GlobalType
 
         static bool IsDictionary (Type type) =>
             type.IsGenericType &&
-            (type.GetGenericTypeDefinition().FullName == typeof(Dictionary<,>).FullName ||
-             type.GetGenericTypeDefinition().FullName == typeof(IDictionary<,>).FullName ||
-             type.GetGenericTypeDefinition().FullName == typeof(IReadOnlyDictionary<,>).FullName);
+            (OpenGeneric(type).FullName == typeof(Dictionary<,>).FullName ||
+             OpenGeneric(type).FullName == typeof(IDictionary<,>).FullName ||
+             OpenGeneric(type).FullName == typeof(IReadOnlyDictionary<,>).FullName);
     }
 
-    public static NullabilityInfo GetNullity (PropertyInfo prop) => new NullabilityInfoContext().Create(prop);
-    public static NullabilityInfo GetNullity (ParameterInfo param) => new NullabilityInfoContext().Create(param);
-    public static NullabilityInfo GetNullity (EventInfo evt) => new NullabilityInfoContext().Create(evt);
-    public static NullabilityInfo GetNullity (EventInfo evt, ParameterInfo param)
+    public static bool IsSameType (Type a, Type b)
     {
-        if (evt.EventHandlerType!.IsGenericType)
-        {
-            var arg = evt.EventHandlerType.GetGenericTypeDefinition()
-                .GetMethod("Invoke")!.GetParameters()[param.Position].ParameterType;
-            if (arg.IsGenericParameter)
-                return GetNullity(evt).GenericTypeArguments[arg.GenericParameterPosition];
-        }
-        return GetNullity(param);
+        return OpenGeneric(a) == OpenGeneric(b);
     }
 
-    public static bool IsNullable (Type type, NullabilityInfo? info) => IsNullable(type, info, out _);
+    public static Nullity GetNullity (EventInfo evt) => new NullabilityInfoContext().Create(evt);
+    public static Nullity GetNullity (EventInfo evt, ParameterInfo param) =>
+        GetNullity(param, new NullabilityInfoContext().Create(evt));
+    public static Nullity GetNullity (PropertyInfo prop) =>
+        FixNullity(new NullabilityInfoContext().Create(prop), prop.CustomAttributes, prop.DeclaringType);
+    public static Nullity GetNullity (ParameterInfo param, Nullity? nul = null)
+    {
+        var self = FixNullity(new NullabilityInfoContext().Create(param), param.CustomAttributes, param.Member);
+        if (nul?.GenericTypeArguments is not { Length: > 0 } args) return self;
+        // resolve nullability from the open (unbound) generic form of the method
+        var method = param.Member.Module.ResolveMethod(((MethodBase)param.Member).MetadataToken)!;
+        param = param.Position < 0 ? ((MethodInfo)method).ReturnParameter : method.GetParameters()[param.Position];
+        if (!param.ParameterType.IsGenericParameter) return self;
+        if (IsNullable(GetNullity(param))) return self;
+        return args[param.ParameterType.GenericParameterPosition];
+    }
+
+    public static bool IsNullable (Nullity? nul) => nul?.ReadState == NullabilityState.Nullable;
+    public static bool IsNullable (Type type, Nullity? nul) => IsNullable(type, nul, out _);
     public static bool IsNullable (Type type, [NotNullWhen(true)] out Type? value) => IsNullable(type, null, out value);
-    public static bool IsNullable (Type type, NullabilityInfo? info, [NotNullWhen(true)] out Type? value)
+    public static bool IsNullable (Type type, Nullity? nul, [NotNullWhen(true)] out Type? value)
     {
-        if (info?.ReadState == NullabilityState.Nullable) value = type;
-        else if (type.IsGenericType && type.Name.Contains("Nullable`") && type.GenericTypeArguments.Length == 1)
+        if (type.IsGenericType && type.Name.Contains("Nullable`") && type.GenericTypeArguments.Length == 1)
             value = type.GenericTypeArguments[0];
+        else if (IsNullable(nul)) value = type;
         else value = null;
         return value != null;
-    }
-
-    public static string BuildJSSpace (Type type, Preferences prefs)
-    {
-        var space = type.Namespace ?? "";
-        if (type.IsNested)
-        {
-            if (!string.IsNullOrEmpty(space)) space += ".";
-            space += type.DeclaringType!.Name;
-        }
-        return WithPrefs(prefs.Space, space, space);
-    }
-
-    public static string BuildJSName (string name)
-    {
-        name = ToFirstLower(name);
-        return name == "function" ? "fn" : name;
     }
 
     public static string PrependIdArg (string args)
@@ -116,22 +118,22 @@ internal static class GlobalType
         return $"_id, {args}";
     }
 
-    public static string BuildSerializedId (Type type)
+    public static string BuildId (Type type, Nullity? nul = null)
     {
-        var builder = new StringBuilder();
-        foreach (var c in BuildSyntax(type).Replace("global::", ""))
-            if (char.IsLetterOrDigit(c) || c == '_') builder.Append(c);
-            else if (c == '.') builder.Append('_');
-            else if (c == '?') builder.Append("OrNull");
-            else if (c == '[') builder.Append("Array");
-            else if (c == '<') builder.Append("_Of_");
-            else if (c == ',') builder.Append("_And_");
-        return builder.ToString();
+        var sb = new StringBuilder();
+        foreach (var c in BuildSyntax(type, nul).Replace("global::", ""))
+            if (char.IsLetterOrDigit(c) || c == '_') sb.Append(c);
+            else if (c == '.') sb.Append('_');
+            else if (c == '?') sb.Append("OrNull");
+            else if (c == '[') sb.Append("Array");
+            else if (c == '<') sb.Append("_Of_");
+            else if (c == ',') sb.Append("_And_");
+        return sb.ToString();
     }
 
-    public static string BuildSyntax (Type type, NullabilityInfo? nul = null, bool forceNil = false)
+    public static string BuildSyntax (Type type, Nullity? nul = null)
     {
-        var nil = (forceNil || nul?.ReadState == NullabilityState.Nullable) ? "?" : "";
+        var nil = IsNullable(nul) ? "?" : "";
         if (IsVoid(type)) return "void";
         if (type.IsArray) return $"{BuildSyntax(type.GetElementType()!, nul?.ElementType)}[]{nil}";
         if (type.IsGenericType) return BuildGeneric(type, type.GenericTypeArguments);
@@ -139,58 +141,56 @@ internal static class GlobalType
 
         string BuildGeneric (Type type, Type[] args)
         {
-            if (IsNullable(type, out var value)) return BuildSyntax(value, nul, true);
+            if (IsNullable(type, out var value))
+                return BuildSyntax(value, value.IsGenericType ? nul : null) + "?";
             var name = TrimGeneric(ResolveTypeName(type));
-            var typeArgs = string.Join(", ", args.Select((a, i) => BuildSyntax(a, nul?.GenericTypeArguments[i])));
+            var typeArgs = string.Join(", ", args.Select((a, i) =>
+                BuildSyntax(a, nul?.GenericTypeArguments[i])));
             return $"global::{name}<{typeArgs}>";
         }
 
         static string ResolveTypeName (Type type)
         {
             if (type.IsNested) return $"{ResolveTypeName(type.DeclaringType!)}.{type.Name}";
-            if (type.Namespace is null) return type.Name;
-            return $"{type.Namespace}.{type.Name}";
+            return type.Namespace is null ? type.Name : $"{type.Namespace}.{type.Name}";
         }
     }
 
     public static string TrimGeneric (string typeName)
     {
-        var delimiterIndex = typeName.IndexOf('`');
-        if (delimiterIndex < 0) return typeName;
-        return typeName[..delimiterIndex];
+        return Regex.Replace(typeName, @"`\d+(\[\[.*\]\])?", "");
     }
 
-    public static string Export (ArgumentMeta arg) => Export(arg.Value, arg.Name);
-    public static string Export (ValueMeta value, string exp) => Export(value.Type, exp);
-    public static string Export (TypeMeta type, string exp)
+    public static Type OpenGeneric (Type type)
     {
-        if (type is InstancedMeta it)
-            if (it.Interop == InteropKind.Export) return $"Instances.Export({exp})";
-            else return $"((global::{it.FullName}){exp})._id";
+        return type.IsGenericType ? type.GetGenericTypeDefinition() : type;
+    }
+
+    public static string ExportCS (ArgumentMeta arg) => ExportCS(arg.Value, arg.Name);
+    public static string ExportCS (ValueMeta value, string exp) => ExportCS(value.Type, exp);
+    public static string ExportCS (TypeMeta type, string exp)
+    {
+        if (type is InstanceMeta) return $"Instances.Export({exp})";
         if (type is SerializedMeta sm) return $"Serializer.Serialize({exp}, SerializerContext.{sm.Id})";
         return exp;
     }
 
-    public static string Import (ArgumentMeta arg) => Import(arg.Value, arg.Name);
-    public static string Import (ValueMeta value, string exp) => Import(value.Type, exp);
-    public static string Import (TypeMeta type, string exp)
+    public static string ImportCS (ArgumentMeta arg) => ImportCS(arg.Value, arg.Name);
+    public static string ImportCS (ValueMeta value, string exp) => ImportCS(value.Type, exp);
+    public static string ImportCS (TypeMeta type, string exp)
     {
-        if (type is InstancedMeta it)
-            if (it.Interop == InteropKind.Export) return $"Instances.Exported<{it.Syntax}>({exp})";
-            else return $"Instances.Import({exp}, static id => new global::{it.FullName}(id))";
+        if (type is InstanceMeta it) return $"Instances.Resolve<{it.Syntax}>({exp})";
         if (type is SerializedMeta sm) return $"Serializer.Deserialize({exp}, SerializerContext.{sm.Id})";
         return exp;
     }
 
-    public static string ExportJS (ArgumentMeta arg) => ExportJS(arg.Value, arg.JSName);
+    public static string ExportJS (ArgumentMeta arg) // arguments are undefined (not null) by convention
+        => ExportJS(arg.Value, arg.JSName) + (arg.Value.Nullable ? " ?? undefined" : "");
     public static string ExportJS (ValueMeta value, string exp) => ExportJS(value.Type, exp);
     public static string ExportJS (TypeMeta type, string exp)
     {
-        if (type is InstancedMeta it)
-            if (it.Interop == InteropKind.Export) return $"{exp}._id";
-            else if (it.Importer is { } importer) return $"{importer}({exp})";
-            else return $"instances.import({exp})";
-        if (type is SerializedMeta sm) return $"serialize({exp}, {sm.Id})";
+        if (type is InstanceMeta it) return $"$i.resolve({exp}, $i.{it.Id})";
+        if (type is SerializedMeta sm) return $"deserialize({exp}, $s.{sm.Id})";
         return exp;
     }
 
@@ -198,10 +198,39 @@ internal static class GlobalType
     public static string ImportJS (ValueMeta value, string exp) => ImportJS(value.Type, exp);
     public static string ImportJS (TypeMeta type, string exp)
     {
-        if (type is InstancedMeta it)
-            if (it.Interop == InteropKind.Import) return $"instances.imported({exp})";
-            else return $"instances.export({exp}, id => new {it.JSName}(id))";
-        if (type is SerializedMeta sm) return $"deserialize({exp}, {sm.Id})";
+        if (type is InstanceMeta it)
+            if (it.Importer is { } importer) return $"$i.{importer}({exp})";
+            else return $"$i.import({exp})";
+        if (type is SerializedMeta sm) return $"serialize({exp}, $s.{sm.Id})";
         return exp;
+    }
+
+    private static Nullity FixNullity (Nullity nul, IEnumerable<CustomAttributeData> attrs, MemberInfo? scope)
+    {
+        // Nullity is conservatively reported as nullable for unconstrained generic parameters; this workaround
+        // resolves actual nullability via a compiler heuristic. https://github.com/dotnet/runtime/issues/115014
+
+        if (!nul.Type.IsGenericTypeParameter) return nul;
+        var state = IsAnnotated() ? NullabilityState.Nullable : NullabilityState.NotNull;
+        SetReadState(nul, state);
+        SetWriteState(nul, state);
+        return nul;
+
+        bool IsAnnotated ()
+        {
+            foreach (var attr in attrs)
+                if (attr.AttributeType.FullName == "System.Runtime.CompilerServices.NullableAttribute")
+                    return (byte)attr.ConstructorArguments[0].Value! == 2;
+            for (var type = scope; type != null; type = type.DeclaringType)
+                foreach (var attr in type.CustomAttributes)
+                    if (attr.AttributeType.FullName == "System.Runtime.CompilerServices.NullableContextAttribute")
+                        return (byte)attr.ConstructorArguments[0].Value! == 2;
+            return false;
+        }
+
+        [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "set_ReadState")]
+        static extern void SetReadState (Nullity nul, NullabilityState value);
+        [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "set_WriteState")]
+        static extern void SetWriteState (Nullity nul, NullabilityState value);
     }
 }

@@ -3,7 +3,7 @@ namespace Bootsharp.Generate.Test;
 public static class ImportPropertyTest
 {
     public static TheoryData<string, string> Data { get; } = new() {
-        // Can generate import property without namespace.
+        // Property with both accessors under the root namespace.
         {
             """
             partial class Foo
@@ -14,13 +14,13 @@ public static class ImportPropertyTest
             """
             unsafe partial class Foo
             {
-                static partial global::System.Int32 Counter { get => Bootsharp_GetPropertyCounter(); set => Bootsharp_SetPropertyCounter(value); }
-                public static delegate* managed<global::System.Int32> Bootsharp_GetPropertyCounter;
-                public static delegate* managed<global::System.Int32, void> Bootsharp_SetPropertyCounter;
+                static partial global::System.Int32 Counter { get => Bootsharp_GetCounter(); set => Bootsharp_SetCounter(value); }
+                public static delegate* managed<global::System.Int32> Bootsharp_GetCounter;
+                public static delegate* managed<global::System.Int32, void> Bootsharp_SetCounter;
             }
             """
         },
-        // Can generate getter-only import property under namespace.
+        // Getter-only property under a namespace.
         {
             """
             namespace Space;
@@ -35,12 +35,12 @@ public static class ImportPropertyTest
 
             public static unsafe partial class Foo
             {
-                public static partial global::System.String Label { get => Bootsharp_GetPropertyLabel(); }
-                public static delegate* managed<global::System.String> Bootsharp_GetPropertyLabel;
+                public static partial global::System.String Label { get => Bootsharp_GetLabel(); }
+                public static delegate* managed<global::System.String> Bootsharp_GetLabel;
             }
             """
         },
-        // Can generate setter-only import property.
+        // Setter-only property.
         {
             """
             partial class Foo
@@ -51,12 +51,12 @@ public static class ImportPropertyTest
             """
             unsafe partial class Foo
             {
-                static partial global::System.Boolean Active { set => Bootsharp_SetPropertyActive(value); }
-                public static delegate* managed<global::System.Boolean, void> Bootsharp_SetPropertyActive;
+                static partial global::System.Boolean Active { set => Bootsharp_SetActive(value); }
+                public static delegate* managed<global::System.Boolean, void> Bootsharp_SetActive;
             }
             """
         },
-        // Ignores non-static properties.
+        // Non-static properties are ignored.
         {
             """
             partial class Foo
@@ -68,9 +68,9 @@ public static class ImportPropertyTest
             """
             unsafe partial class Foo
             {
-                static partial global::System.Int32 Counter { get => Bootsharp_GetPropertyCounter(); set => Bootsharp_SetPropertyCounter(value); }
-                public static delegate* managed<global::System.Int32> Bootsharp_GetPropertyCounter;
-                public static delegate* managed<global::System.Int32, void> Bootsharp_SetPropertyCounter;
+                static partial global::System.Int32 Counter { get => Bootsharp_GetCounter(); set => Bootsharp_SetCounter(value); }
+                public static delegate* managed<global::System.Int32> Bootsharp_GetCounter;
+                public static delegate* managed<global::System.Int32, void> Bootsharp_SetCounter;
             }
             """
         }

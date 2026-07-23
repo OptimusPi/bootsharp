@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
   cover:
     runs-on: ubuntu-latest
@@ -17,7 +20,7 @@ jobs:
           dotnet-version: 10
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 26
       - name: cover
         run: |
           cd src/js
@@ -33,7 +36,7 @@ jobs:
           npm run compile-test
           npm run cover
       - name: upload coverage reports to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           fail_ci_if_error: true
         env:

@@ -17,11 +17,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ "csharp", "javascript" ]
+        include:
+          - language: csharp
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
     steps:
       - name: checkout
         uses: actions/checkout@v6
       - name: setup dotnet
+        if: matrix.language == 'csharp'
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10
@@ -29,13 +36,12 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
       - name: build
+        if: matrix.build-mode == 'manual'
         run: |
           cd src/cs
           bash ./.scripts/llvm.sh
           bash ./.scripts/pack.sh
-          cd ../js
-          npm install
-          npm run build
       - name: analyze
         uses: github/codeql-action/analyze@v4

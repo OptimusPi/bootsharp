@@ -8,7 +8,9 @@ public class MockCompiler
     private static readonly string[] defaultUsings = [
         "System",
         "System.Collections.Generic",
+        "System.Threading",
         "System.Threading.Tasks",
+        "System.Reflection",
         "Bootsharp"
     ];
 

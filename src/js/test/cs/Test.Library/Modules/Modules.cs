@@ -4,7 +4,7 @@ using Bootsharp;
 
 namespace Test.Library;
 
-public static class Modules
+public static partial class Modules
 {
     [Export]
     public static async Task CanInteropWithImportedModuleAsync ()
@@ -32,6 +32,8 @@ public static class Modules
         imported.OnRecordChanged += handler;
         Assert(imported.GetInstanceArg() == "instance-arg");
         Assert(await imported.GetRecordIdAsync(new Record("rec-id")) == "rec-id");
+        Assert(await imported.GetBiAsync() is not BidirectionalCS);
+        Assert(await imported.GetBiAsync(() => new BidirectionalCS()) is BidirectionalCS);
         Assert(imported.Record?.Id == "initial-rec");
         imported.Record = new Record("set");
         Assert(imported.Record?.Id == "set");
@@ -53,6 +55,39 @@ public static class Modules
         inner.Increment();
         Assert(inner.Count == 2);
         inner.OnCountChanged -= handler;
+    }
+
+    [Export] public static IBidirectional ExportBi () => new BidirectionalCS();
+    [Import] public static partial IBidirectional ImportBi ();
+
+    [Export]
+    public static void CanInteropWithBidirectional ()
+    {
+        var js = ImportBi();
+        var cs = new BidirectionalCS();
+        IBidirectional? eventObserved = null;
+        IBidirectional? specialObserved = null;
+        Action<IBidirectional?> eventHandler = b => eventObserved = b;
+        IBidirectional.SpecialHandler specialHandler = b => specialObserved = b;
+        js.OnBiChanged += eventHandler;
+        js.OnSpecial.Subscribe(specialHandler);
+        Assert(js.EchoBi(null) == null);
+        Assert(js.EchoBi(js) == js);
+        Assert(js.EchoBi(cs) == cs);
+        js.Bi = cs;
+        Assert(eventObserved == cs);
+        Assert(specialObserved == cs);
+        Assert(js.Bi == cs);
+        js.Bi = js;
+        Assert(eventObserved == js);
+        Assert(specialObserved == js);
+        Assert(js.Bi == js);
+        js.Bi = null;
+        Assert(eventObserved == null);
+        Assert(specialObserved == null);
+        Assert(js.Bi == null);
+        js.OnBiChanged -= eventHandler;
+        js.OnSpecial.Unsubscribe(specialHandler);
     }
 
     [Export]

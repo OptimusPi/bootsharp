@@ -12,7 +12,7 @@ The web platform is the industry standard for modern UI development. Frameworks 
 
 Solutions like [Blazor](https://dotnet.microsoft.com/en-us/apps/aspnet/web-apps/blazor) attempt to bring the entire web platform into .NET, effectively reversing the natural workflow and restricting access to native JavaScript tools. Bootsharp takes the opposite approach: it enables high-level interoperation between C# and TypeScript, so each layer can be developed within its optimal environment.
 
-With Bootsharp, you implement domain logic in C# and build the UI using familiar web technologies, then connect them seamlessly. Your project can be published to the web or bundled as a native desktop or mobile application using [Electron](https://electronjs.org) or [Tauri](https://tauri.app).
+With Bootsharp, you implement domain logic in C# and build the UI using familiar web technologies — the interop layer is generated automatically with zero manual authoring. Your project can then be published to the web or bundled as a native desktop or mobile application using [Electron](https://electronjs.org) or [Tauri](https://tauri.app).
 
 ## How?
 
@@ -43,7 +43,7 @@ Bootsharp will automatically build and bundle the JavaScript package when publis
 import bootsharp, { Backend, Frontend } from "backend";
 
 // Boot C# WASM module.
-await bootsharp.boot("/bin");
+await bootsharp.boot();
 
 // Subscribe to C# event.
 Frontend.onUserChanged.subscribe(updateUserUI);

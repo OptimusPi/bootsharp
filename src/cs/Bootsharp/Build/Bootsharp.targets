@@ -13,6 +13,7 @@
         <BsEntryAssembly>$(AssemblyName).dll</BsEntryAssembly>
         <BsPackAfter Condition="$(BsLlvm)">CopyNativeBinary</BsPackAfter>
         <BsPackAfter Condition="!$(BsLlvm)">WasmNestedPublishApp</BsPackAfter>
+        <BsEmbed>$([System.String]::IsNullOrEmpty('$(BootsharpBinariesDirectory)'))</BsEmbed>
     </PropertyGroup>
 
     <!-- Include NativeAOT-LLVM compiler infrastructure when enabled. -->
@@ -41,30 +42,29 @@
 
     <!-- Register tasks for Visual Studio. (https://github.com/elringus/bootsharp/issues/137) -->
     <UsingTask Condition="'$(MSBuildRuntimeType)' == 'Full'"
-               TaskName="Bootsharp.Publish.BootsharpEmit" AssemblyFile="$(BsPublishAssembly)"
+               TaskName="Bootsharp.Publish.GenerateCS" AssemblyFile="$(BsPublishAssembly)"
                Runtime="NET" TaskFactory="TaskHostFactory"/>
     <UsingTask Condition="'$(MSBuildRuntimeType)' == 'Full'"
-               TaskName="Bootsharp.Publish.BootsharpPack" AssemblyFile="$(BsPublishAssembly)"
+               TaskName="Bootsharp.Publish.GenerateJS" AssemblyFile="$(BsPublishAssembly)"
                Runtime="NET" TaskFactory="TaskHostFactory"/>
     <!-- Register tasks for 'dotnet publish' run from CLI. -->
     <UsingTask Condition="'$(MSBuildRuntimeType)' != 'Full'"
-               TaskName="Bootsharp.Publish.BootsharpEmit" AssemblyFile="$(BsPublishAssembly)"/>
+               TaskName="Bootsharp.Publish.GenerateCS" AssemblyFile="$(BsPublishAssembly)"/>
     <UsingTask Condition="'$(MSBuildRuntimeType)' != 'Full'"
-               TaskName="Bootsharp.Publish.BootsharpPack" AssemblyFile="$(BsPublishAssembly)"/>
+               TaskName="Bootsharp.Publish.GenerateJS" AssemblyFile="$(BsPublishAssembly)"/>
 
     <!-- A hack due to source generator compositing not possible. (https://github.com/dotnet/roslyn/issues/57239#issuecomment-1585235740) -->
-    <Target Condition="'$(BsSkip)' != 'true'" Name="BootsharpEmit" BeforeTargets="GenerateAdditionalSources">
+    <Target Condition="'$(BsSkip)' != 'true'" Name="BootsharpCS" BeforeTargets="GenerateAdditionalSources">
 
         <!-- Pre-compile the solution, as we'll need to inspect the assemblies in the next step. -->
         <MSBuild Projects="$(MSBuildProjectFile)" Targets="BuildCompile" Properties="BsSkip=true"/>
 
-        <!-- Emit code to be analyzed by .NET's source generators: interop methods and serialized type hints. -->
-        <BootsharpEmit InspectedDirectory="$(OutputPath)"
-                       EntryAssemblyName="$(BsEntryAssembly)"
-                       SerializerFilePath="$(BsSerializerFilePath)"
-                       InstancesFilePath="$(BsInstancesFilePath)"
-                       ModulesFilePath="$(BsModulesFilePath)"
-                       InteropFilePath="$(BsInteropFilePath)"/>
+        <!-- Emit C# code to be analyzed by .NET's source generators. -->
+        <GenerateCS InspectedDirectory="$(OutputPath)"
+                    SerializerFilePath="$(BsSerializerFilePath)"
+                    InstancesFilePath="$(BsInstancesFilePath)"
+                    ModulesFilePath="$(BsModulesFilePath)"
+                    InteropFilePath="$(BsInteropFilePath)"/>
         <ItemGroup>
             <Compile Remove="$(BsSerializerFilePath)"/>
             <Compile Remove="$(BsInstancesFilePath)"/>
@@ -83,27 +83,33 @@
         <RemoveDir Directories="$(BsIntermediateDir)"/>
     </Target>
 
-    <Target Name="BootsharpPack" AfterTargets="$(BsPackAfter)">
+    <Target Name="BootsharpJS" AfterTargets="$(BsPackAfter)">
 
         <PropertyGroup>
             <BsBuildDir Condition="$(BsLlvm)">$(PublishDir)</BsBuildDir>
             <BsBuildDir Condition="!$(BsLlvm)">$(WasmAppDir)/$(WasmRuntimeAssetsLocation)</BsBuildDir>
             <BsBaseOutputPath>$(BaseOutputPath.Replace('\', '/'))</BsBaseOutputPath>
             <BootsharpPublishDirectory Condition="'$(BootsharpPublishDirectory)' == ''">$(BsBaseOutputPath)$(BootsharpName)</BootsharpPublishDirectory>
-            <BootsharpBinariesDirectory Condition="'$(BootsharpBinariesDirectory)' == ''">$(BootsharpPublishDirectory)/bin</BootsharpBinariesDirectory>
             <BootsharpPackageDirectory Condition="'$(BootsharpPackageDirectory)' == ''">$(MSBuildProjectDirectory)</BootsharpPackageDirectory>
             <BsGlobalization>$([System.String]::Equals('$(InvariantGlobalization)', 'false'))</BsGlobalization>
         </PropertyGroup>
 
-        <!-- Copy bootsharp source files to the build directory. -->
+        <!-- Purge stale generated files left from previous builds. -->
+        <RemoveDir Directories="$(BsBuildDir)/generated"/>
+
+        <!-- Copy Bootsharp internal sources to the build directory. -->
         <ItemGroup>
             <BsSourceFiles Include="$(BsSourceDir)/**/*.*"/>
         </ItemGroup>
         <Copy SourceFiles="@(BsSourceFiles)" DestinationFolder="$(BsBuildDir)/%(RecursiveDir)"/>
 
+        <!-- Rename the native WASM binary to the configured Bootsharp name. -->
+        <Move SourceFiles="$(BsBuildDir)/dotnet.native.wasm"
+              DestinationFiles="$(BsBuildDir)/$(BootsharpName).wasm"/>
+
         <!-- Optimize the produced WASM with Binaryen when publishing release builds. -->
         <Exec Condition="!$(BsDebug)"
-              Command="wasm-opt dotnet.native.wasm -O3 -o dotnet.native.wasm --all-features --strip-dwarf --strip-debug --vacuum"
+              Command="wasm-opt $(BootsharpName).wasm -O3 -o $(BootsharpName).wasm --all-features --strip-dwarf --strip-debug --vacuum"
               WorkingDirectory="$(BsBuildDir)"
               StdOutEncoding="utf-8" StdErrEncoding="utf-8"
               IgnoreExitCode="true">
@@ -112,14 +118,16 @@
         <Warning Condition="!$(BsDebug) And '$(BsBinaryenExitCode)' != '' And '$(BsBinaryenExitCode)' != '0'"
                  Text="Failed to run Binaryen optimization. Ensure Binaryen (https://github.com/WebAssembly/binaryen) is installed and 'wasm-opt' is in the system path, otherwise the build is not fully optimized."/>
 
-        <!-- Generate JavaScript bindings and type declarations. -->
-        <BootsharpPack BuildDirectory="$(BsBuildDir)"
-                       DebugDirectory="$(PublishDir)"
-                       InspectedDirectory="$(OutputPath)"
-                       EntryAssemblyName="$(BsEntryAssembly)"
-                       Globalization="$(BsGlobalization)"
-                       LLVM="$(BsLlvm)"
-                       Debug="$(BsDebug)"/>
+        <!-- Generate JavaScript sources and type declarations. -->
+        <GenerateJS BuildDirectory="$(BsBuildDir)"
+                    DebugDirectory="$(PublishDir)"
+                    InspectedDirectory="$(OutputPath)"
+                    EntryAssemblyName="$(BsEntryAssembly)"
+                    PackageName="$(BootsharpName)"
+                    Globalization="$(BsGlobalization)"
+                    LLVM="$(BsLlvm)"
+                    Debug="$(BsDebug)"
+                    Embed="$(BsEmbed)"/>
 
         <!-- Publish modules, binaries and type declarations. -->
         <ItemGroup>
@@ -133,8 +141,9 @@
             <BsNativeFile Include="$(BsBuildDir)/dotnet.native.js"/>
         </ItemGroup>
         <RemoveDir Directories="$(BootsharpBinariesDirectory)"/>
-        <Copy SourceFiles="@(BsWasmFiles)" DestinationFolder="$(BootsharpBinariesDirectory)"/>
-        <Copy SourceFiles="@(BsIcuFiles)" DestinationFolder="$(BootsharpBinariesDirectory)"/>
+        <RemoveDir Directories="$(BootsharpPublishDirectory)"/>
+        <Copy Condition="!$(BsEmbed)" SourceFiles="@(BsWasmFiles)" DestinationFolder="$(BootsharpBinariesDirectory)"/>
+        <Copy Condition="!$(BsEmbed)" SourceFiles="@(BsIcuFiles)" DestinationFolder="$(BootsharpBinariesDirectory)"/>
         <Copy SourceFiles="@(BsDotNetFile)" DestinationFolder="$(BootsharpPublishDirectory)/dotnet"/>
         <Copy SourceFiles="@(BsRuntimeFile)" DestinationFolder="$(BootsharpPublishDirectory)/dotnet"/>
         <Copy SourceFiles="@(BsNativeFile)" DestinationFolder="$(BootsharpPublishDirectory)/dotnet"/>
@@ -148,8 +157,8 @@
             <BsPdbs Include="$(PublishDir)/*.pdb"/>
         </ItemGroup>
         <Copy Condition="$(BsDebug)" SourceFiles="@(BsMaps)" DestinationFolder="$(BootsharpPublishDirectory)"/>
-        <Copy Condition="$(BsDebug)" SourceFiles="@(BsSymbols)" DestinationFolder="$(BootsharpBinariesDirectory)"/>
-        <Copy Condition="$(BsDebug)" SourceFiles="@(BsPdbs)" DestinationFolder="$(BootsharpBinariesDirectory)"/>
+        <Copy Condition="$(BsDebug) And !$(BsEmbed)" SourceFiles="@(BsSymbols)" DestinationFolder="$(BootsharpBinariesDirectory)"/>
+        <Copy Condition="$(BsDebug) And !$(BsEmbed)" SourceFiles="@(BsPdbs)" DestinationFolder="$(BootsharpBinariesDirectory)"/>
 
         <!-- Publish package file. -->
         <ItemGroup>
