@@ -1,15 +1,12 @@
-// TODO: Figure how to get fixtures from "../fixtures.mjs"
+// Native imports for the `DllImport("x")` calls in Program.cs. The fixture data
+// itself lives in ../fixtures.mjs and is wired onto globalThis by init.mjs (same
+// pattern as the other samples); here we only marshal it across the wasm boundary
+// using the Emscripten runtime helpers, which are unavailable to plain ES modules.
 
 mergeInto(LibraryManager.library, {
-    getNumber: () => 42,
+    getNumber: () => globalThis.getNumber(),
     getStruct: () => {
-        const data = {
-            info: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-            ok: true,
-            revision: -112,
-            messages: ["foo", "bar", "baz", "nya", "far"]
-        };
-        const json = JSON.stringify(data);
+        const json = JSON.stringify(globalThis.getStruct());
         const size = lengthBytesUTF16(json) + 1;
         const ptr = _malloc(size);
         stringToUTF16(json, ptr, size);
